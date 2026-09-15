@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Emerald TCG Finder</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 280px;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #051d17, #0a3429);
+      color: #edf7ee;
+      padding: 12px;
+    }
+    h1 {
+      font-size: 14px;
+      color: #f4c95d;
+      margin-bottom: 2px;
+    }
+    .subtitle {
+      font-size: 10px;
+      color: #8fe6a9;
+      margin-bottom: 12px;
+    }
+    .stats {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat {
+      flex: 1;
+      text-align: center;
+      padding: 8px;
+      background: rgba(15, 75, 60, 0.6);
+      border-radius: 6px;
+    }
+    .stat-number {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f4c95d;
+    }
+    .stat-label {
+      font-size: 9px;
+      color: #8fe6a9;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 6px;
+      transition: all 0.2s ease;
+    }
+    .btn-primary {
+      background: #2ab977;
+      color: #051d17;
+    }
+    .btn-primary:hover {
+      background: #8fe6a9;
+    }
+    .btn-secondary {
+      background: rgba(42, 185, 119, 0.15);
+      color: #8fe6a9;
+      border: 1px solid rgba(42, 185, 119, 0.3);
+      font-size: 11px;
+      padding: 6px;
+    }
+    .btn-secondary:hover {
+      background: rgba(42, 185, 119, 0.25);
+    }
+    .btn-emerald {
+      background: #2ab977;
+      color: #051d17;
+      font-weight: 700;
+    }
+    .btn-emerald:hover {
+      background: #8fe6a9;
+    }
+    .btn-emerald.active {
+      background: #d95757;
+      color: #fff;
+    }
+    .btn-emerald.active:hover {
+      background: #c44545;
+    }
+    .btn-missing {
+      background: #6c757d;
+      color: #fff;
+      font-weight: 600;
+    }
+    .btn-missing:hover {
+      background: #5a6268;
+    }
+    .btn-missing.active {
+      background: #17a2b8;
+      color: #fff;
+    }
+    .btn-missing.active:hover {
+      background: #138496;
+    }
+    .section-title {
+      font-size: 10px;
+      color: #8fe6a9;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      margin-top: 6px;
+    }
+    .footer {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 9px;
+      color: #8fe6a9;
+    }
+    .info-box {
+      background: rgba(42, 185, 119, 0.1);
+      border: 1px solid rgba(42, 185, 119, 0.3);
+      border-radius: 5px;
+      padding: 6px;
+      margin-bottom: 6px;
+      font-size: 9px;
+      color: #8fe6a9;
+      line-height: 1.3;
+    }
+    .select-group {
+      margin-bottom: 6px;
+    }
+    .select-group label {
+      display: block;
+      font-size: 10px;
+      color: #8fe6a9;
+      margin-bottom: 3px;
+    }
+    .select-group select {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid rgba(42, 185, 119, 0.3);
+      border-radius: 4px;
+      background: rgba(15, 75, 60, 0.6);
+      color: #edf7ee;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .select-group select option {
+      background: #0a3429;
+      color: #edf7ee;
+    }
+    .select-group input[type="text"] {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid rgba(42, 185, 119, 0.3);
+      border-radius: 4px;
+      background: rgba(15, 75, 60, 0.6);
+      color: #edf7ee;
+      font-size: 11px;
+    }
+    .select-group input[type="text"]::placeholder {
+      color: rgba(143, 230, 169, 0.5);
+    }
+    .status-msg {
+      font-size: 9px;
+      color: #8fe6a9;
+      margin-top: 3px;
+      min-height: 12px;
+    }
+    .hidden {
+      display: none;
+    }
+    .btn-load {
+      background: #17a2b8;
+      color: #fff;
+      font-size: 11px;
+      padding: 6px;
+      margin-top: 3px;
+    }
+    .btn-load:hover {
+      background: #138496;
+    }
+  </style>
+</head>
+<body>
+  <h1>Emerald TCG Finder</h1>
+  <p class="subtitle">Configurações</p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-number" id="cardsFound">0</div>
+      <div class="stat-label">Encontradas</div>
+    </div>
+  </div>
+
+  <button id="scanBtn" class="btn btn-primary">🔍 Escanear página</button>
+
+  <div class="section-title">Filtros</div>
+  <button id="emeraldOnlyBtn" class="btn btn-emerald">⚡ Apenas Emerald</button>
+  <button id="missingOnlyBtn" class="btn btn-missing">📋 Apenas Faltando</button>
+
+  <div class="info-box">
+    <strong>📋 Apenas Faltando:</strong> Oculta cartas que você já possui no Emerald TCG Tracker. Sincronize seu save logo abaixo.
+  </div>
+
+  <button id="openTrackerBtn" class="btn btn-secondary">📊 Abrir Tracker</button>
+
+  <div class="section-title">Sincronizar com o Tracker</div>
+  <div class="select-group">
+    <label>Link de compartilhamento (save) do Tracker:</label>
+    <input type="text" id="syncLinkInput" placeholder="https://joaogazire.github.io/gen3-track-tcg/src/#c=...">
+  </div>
+  <button id="syncLinkBtn" class="btn btn-load">🔄 Sincronizar cartas faltantes</button>
+  <div class="status-msg" id="saveStatus"></div>
+
+  <div class="footer">v1.0.0</div>
+
+  <script src="../vendor/lz-string.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

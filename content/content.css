@@ -1,0 +1,46 @@
+/* Emerald TCG Finder - Content Styles
+ * Selo do Rayquaza sobre imagens de cartas Emerald
+ */
+
+/* Wrapper do selo - posicionado no canto superior direito da imagem */
+.emerald-seal-wrapper {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1000;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
+}
+
+.emerald-seal-wrapper:hover {
+  transform: scale(1.2);
+}
+
+/* Ícone do selo */
+.emerald-badge-icon {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #f4c95d;
+}
+
+/* Animação de brilho */
+@keyframes emerald-glow {
+  0%, 100% {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
+  }
+  50% {
+    filter: drop-shadow(0 2px 10px rgba(42, 185, 119, 0.6)) drop-shadow(0 0 15px rgba(244, 201, 93, 0.3));
+  }
+}
+
+.emerald-seal-wrapper {
+  animation: emerald-glow 3s ease-in-out infinite;
+}
+
+.emerald-seal-wrapper:hover {
+  animation: none;
+}

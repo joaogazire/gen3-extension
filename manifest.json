@@ -1,0 +1,87 @@
+{
+  "manifest_version": 2,
+  "name": "Emerald TCG Finder",
+  "version": "1.0.1",
+  "description": "Identifica cartas do Pokémon Emerald em sites de TCG brasileiros e destaca com selo do Rayquaza",
+  "author": "João Gazire",
+  "homepage_url": "https://joaogazire.github.io/gen3-track-tcg/src/",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "emerald-tcg-finder@joaogazire.github.io",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "*://*.ligapokemon.com.br/*",
+    "*://*.freitastcg.com.br/*",
+    "*://*.pokemonstore.com.br/*",
+    "*://*.magicdomain.com.br/*",
+    "*://*.cardgame.com.br/*",
+    "*://*.mox.com.br/*",
+    "*://*.gamepod.com.br/*",
+    "*://*.playground.com.br/*",
+    "*://*.cardshall.com.br/*",
+    "*://*.supernovahobbystore.com.br/*",
+    "*://*.epicgame.com.br/*",
+    "*://*.epicone.com.br/*",
+    "*://*.meruru.com.br/*",
+    "*://*.lojadokooper.com.br/*",
+    "*://*.viptcg.com/*",
+    "*://*.reidotcg.com/*",
+    "*://*.jimmietcg.com.br/*",
+    "*://*.stoptcg.com.br/*",
+    "*://*.manycollections.com.br/*"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "icons": {
+    "48": "icons/rayquaza_logo.png",
+    "96": "icons/rayquaza_logo.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.freitastcg.com.br/*",
+        "*://*.ligapokemon.com.br/*",
+        "*://*.ligamagic.com.br/*",
+        "*://*.pokemonstore.com.br/*",
+        "*://*.magicdomain.com.br/*",
+        "*://*.cardgame.com.br/*",
+        "*://*.mox.com.br/*",
+        "*://*.gamepod.com.br/*",
+        "*://*.playground.com.br/*",
+        "*://*.cardshall.com.br/*",
+        "*://*.supernovahobbystore.com.br/*",
+        "*://*.epicgame.com.br/*",
+        "*://*.epicone.com.br/*",
+        "*://*.meruru.com.br/*",
+        "*://*.lojadokooper.com.br/*",
+        "*://*.viptcg.com/*",
+        "*://*.reidotcg.com/*",
+        "*://*.jimmietcg.com.br/*",
+        "*://*.stoptcg.com.br/*",
+        "*://*.manycollections.com.br/*"
+      ],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "48": "icons/rayquaza_logo.png",
+      "96": "icons/rayquaza_logo.png"
+    }
+  },
+  "web_accessible_resources": [
+    "icons/*",
+    "vendor/*"
+  ]
+}
