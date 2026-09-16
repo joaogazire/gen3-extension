@@ -2,19 +2,55 @@
  * Selo do Rayquaza sobre imagens de cartas Emerald
  */
 
-/* Wrapper do selo - posicionado no canto superior direito da imagem */
+/* Wrapper do selo - encostado no canto superior direito da imagem, com a
+   etiqueta de preço justo empilhada acima do ícone */
 .emerald-seal-wrapper {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 0;
+  right: 0;
   z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
   cursor: pointer;
   transition: transform 0.2s ease;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
 }
 
 .emerald-seal-wrapper:hover {
-  transform: scale(1.2);
+  transform: scale(1.1);
+}
+
+/* Etiqueta com o preço justo de mercado (Liga Pokemon) - some até a
+   comparação de preço resolver */
+.emerald-price-tag {
+  display: none;
+  background: rgba(20, 20, 20, 0.85);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  border: 1px solid rgba(244, 201, 93, 0.6);
+}
+
+.emerald-price-tag.emerald-price-tag-visible {
+  display: block;
+}
+
+.emerald-price-tag.emerald-price-cheap {
+  border-color: #2ab977;
+}
+
+.emerald-price-tag.emerald-price-fair {
+  border-color: #f4c95d;
+}
+
+.emerald-price-tag.emerald-price-expensive {
+  border-color: #e05d5d;
 }
 
 /* Ícone do selo */
@@ -25,6 +61,20 @@
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid #f4c95d;
+  transition: border-color 0.2s ease;
+}
+
+/* Cor da borda indica o preço da oferta em relação ao mercado (Liga Pokemon) */
+.emerald-badge-icon.emerald-price-cheap {
+  border-color: #2ab977;
+}
+
+.emerald-badge-icon.emerald-price-fair {
+  border-color: #f4c95d;
+}
+
+.emerald-badge-icon.emerald-price-expensive {
+  border-color: #e05d5d;
 }
 
 /* Animação de brilho */

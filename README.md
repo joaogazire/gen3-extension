@@ -6,6 +6,7 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 
 - ⚡ **Identificação Emerald**: Detecta automaticamente Pokémon da Pokédex do Emerald (202 Pokémon) em sites de TCG
 - 🏅 **Badge do Rayquaza**: Adiciona um selo verde e dourado no canto superior direito das cartas Emerald
+- 🚦 **Indicador de Preço na Listagem**: A borda do selo do Rayquaza muda de cor comparando o preço da oferta com o menor preço de mercado na Liga Pokemon (mesma edição/idioma/conservação, quando disponível): verde (abaixo do mercado), amarelo (preço justo) ou vermelho (acima do mercado)
 - ⚡ **Modo APENAS EMERALD**: Oculta itens que não pertencem à Pokédex do Emerald
 - 📋 **Modo APENAS FALTANDO**: Oculta cartas que você já possui no Emerald TCG Tracker
 - 💰 **Comparação de Preços**: No carrinho, compara com o menor valor entre a Liga Pokemon e as lojas suportadas (mercado brasileiro) para cartas com **exatamente** o mesmo idioma e estado de conservação
@@ -13,26 +14,27 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 
 ## Sites Suportados
 
-- freitastcg.com.br
-- ligapokemon.com.br
-- ligamagic.com.br
-- pokemonstore.com.br
-- magicdomain.com.br
-- cardgame.com.br
-- mox.com.br
-- gamepod.com.br
-- playground.com.br
-- cardshall.com.br
-- supernovahobbystore.com.br
-- epicgame.com.br
-- epicone.com.br
-- meruru.com.br
-- lojadokooper.com.br
-- viptcg.com
-- reidotcg.com
-- jimmietcg.com.br
-- stoptcg.com.br
-- manycollections.com.br
+- [freitastcg.com.br](https://www.freitastcg.com.br)
+- [ligapokemon.com.br](https://www.ligapokemon.com.br)
+- [ligamagic.com.br](https://www.ligamagic.com.br)
+- [pokemonstore.com.br](https://www.pokemonstore.com.br)
+- [magicdomain.com.br](https://www.magicdomain.com.br)
+- [cardgame.com.br](https://www.cardgame.com.br)
+- [mox.com.br](https://www.mox.com.br)
+- [gamepod.com.br](https://www.gamepod.com.br)
+- [playground.com.br](https://www.playground.com.br)
+- [cardshall.com.br](https://www.cardshall.com.br)
+- [supernovahobbystore.com.br](https://www.supernovahobbystore.com.br)
+- [epicgame.com.br](https://www.epicgame.com.br)
+- [epicone.com.br](https://www.epicone.com.br)
+- [meruru.com.br](https://www.meruru.com.br)
+- [lojadokooper.com.br](https://www.lojadokooper.com.br)
+- [viptcg.com](https://www.viptcg.com)
+- [reidotcg.com](https://www.reidotcg.com)
+- [jimmietcg.com.br](https://www.jimmietcg.com.br)
+- [stoptcg.com.br](https://www.stoptcg.com.br)
+- [manycollections.com.br](https://www.manycollections.com.br)
+- [gajosocollectors.com.br](https://www.gajosocollectors.com.br)
 
 ## Instalação
 
@@ -86,6 +88,19 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 6. Se nenhuma fonte tiver um anúncio com idioma e conservação idênticos (e edição, quando aplicável), nada é exibido para aquela carta
 
 **Observação:** a Liga Pokemon e as lojas suportadas usam proteção Cloudflare contra acesso automatizado. A busca só funciona se o seu navegador já tiver uma sessão válida no site (ex: você já visitou o site normalmente antes). Se uma fonte bloquear o acesso, a extensão detecta isso, para de tentar só naquela fonte pro resto da sessão e avisa no console (F12) — as outras fontes continuam funcionando normalmente.
+
+### Indicador de Preço na Listagem
+
+1. Ao navegar em qualquer site suportado, cada carta Emerald identificada recebe o selo do Rayquaza normalmente
+2. Em segundo plano (uma carta por vez, sem travar a página), a extensão busca o **menor preço da mesma carta na Liga Pokemon** — mesma edição (quando o código tipo `010/165` aparece no card), idioma e conservação
+3. Quando a comparação chega, a borda do selo muda de cor:
+   - 🟢 **Verde**: preço da oferta ≤ 90% do menor preço encontrado na Liga Pokemon (abaixo do mercado)
+   - 🟡 **Amarelo**: preço entre 90% e 110% do mercado (preço justo)
+   - 🔴 **Vermelho**: preço ≥ 110% do mercado (acima do mercado)
+4. Passe o mouse sobre o selo pra ver o preço da oferta e o preço de mercado usado na comparação
+5. Se o card não mostrar um preço reconhecível, ou a Liga Pokemon não tiver um anúncio com idioma/conservação/edição idênticos, o selo fica com a borda dourada padrão (sem comparação)
+
+A referência de mercado usada é só a Liga Pokemon (não as lojas de vendedor único), pra não disparar dezenas de requisições por carta numa página de listagem com muitos itens — diferente da comparação no carrinho, que tem poucos itens e pode se dar ao luxo de consultar todas as lojas.
 
 ## Estrutura
 

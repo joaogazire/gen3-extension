@@ -130,7 +130,8 @@
     'reidotcg.com',
     'jimmietcg.com.br',
     'stoptcg.com.br',
-    'manycollections.com.br'
+    'manycollections.com.br',
+    'gajosocollectors.com.br'
   ];
 
   // Estado dos modos
@@ -140,6 +141,12 @@
 
   // Cache de preços (Liga Pokemon + lojas), chave prefixada pela fonte
   const priceCache = new Map();
+
+  // Faixas pra classificar o preço da oferta em relação ao menor preço de
+  // mercado (Liga Pokemon, mesma edição/idioma/conservação): abaixo de 90%
+  // do mercado é "barata", acima de 110% é "cara", entre os dois é "justa".
+  const PRICE_CHEAP_RATIO = 0.9;
+  const PRICE_EXPENSIVE_RATIO = 1.1;
 
   // Verifica se estamos em uma página de detalhes da carta
   function isCardDetailPage() {
@@ -203,8 +210,13 @@
 
     if (HOENN_POKEDEX.has(cleanName)) return true;
 
+    // Exige nome minimamente completo: evita que texto curto/genérico de
+    // elementos fora dos cards (menu, rodapé, alt de logo) vire falso
+    // positivo por ser substring de um nome de Pokémon (ex: "ra" -> "rayquaza")
+    if (cleanName.length < 4) return false;
+
     for (const pokemon of HOENN_POKEDEX) {
-      if (cleanName === pokemon || cleanName.includes(pokemon) || pokemon.includes(cleanName)) {
+      if (cleanName === pokemon || cleanName.includes(pokemon)) {
         return true;
       }
     }
@@ -346,6 +358,17 @@
     const m = text.match(/(\d{1,3})\s*\/\s*(\d{1,3})/);
     if (!m) return null;
     return `${parseInt(m[1], 10)}/${parseInt(m[2], 10)}`;
+  }
+
+  // Extrai o preço em R$ exibido no próprio card da listagem
+  function extractCardPrice(card) {
+    const priceElement = card.querySelector('.price, .valor, [class*="price"], [class*="valor"], .product-price, [class*="product-price"], .preco, [class*="preco"]');
+    const text = priceElement ? priceElement.textContent : card.textContent;
+    const match = text.match(/R\$\s*([\d.,]+)/);
+    if (!match) return null;
+
+    const price = parseFloat(match[1].replace(/\./g, '').replace(',', '.'));
+    return price > 0 ? price : null;
   }
 
   // Formata valor em Reais (padrão brasileiro, vírgula decimal)
@@ -591,6 +614,78 @@
     }
   }
 
+  // Fila serial de avaliação de preço (badges de listagem) — evita disparar
+  // dezenas de requisições simultâneas pra Liga Pokemon quando a página tem
+  // muitos cards; processa uma carta por vez com um intervalo entre elas.
+  const priceEvalQueue = [];
+  let priceEvalRunning = false;
+
+  function enqueuePriceEval(task) {
+    priceEvalQueue.push(task);
+    runPriceEvalQueue();
+  }
+
+  async function runPriceEvalQueue() {
+    if (priceEvalRunning) return;
+    priceEvalRunning = true;
+
+    while (priceEvalQueue.length > 0) {
+      const task = priceEvalQueue.shift();
+      await evaluateCardPrice(task);
+      await sleep(400);
+    }
+
+    priceEvalRunning = false;
+  }
+
+  // Busca o menor preço da carta na Liga Pokemon (mesma edição/idioma/
+  // conservação da oferta, quando o código de edição está disponível) e
+  // classifica a oferta em barata/justa/cara em relação a esse preço
+  async function evaluateCardPrice({ sealWrapper, offerPrice, pokemonName, details, cardCode }) {
+    if (!sealWrapper.isConnected) return;
+
+    const marketResult = await fetchLigaPokemonPrice(pokemonName, details.language, details.condition, cardCode);
+    if (!marketResult) return;
+
+    applyPriceIndicator(sealWrapper, offerPrice, marketResult.price);
+  }
+
+  // Aplica a cor da borda do selo (verde/amarelo/vermelho) e atualiza o
+  // tooltip com os valores comparados
+  function applyPriceIndicator(sealWrapper, offerPrice, marketPrice) {
+    if (!sealWrapper.isConnected) return;
+
+    const icon = sealWrapper.querySelector('.emerald-badge-icon');
+    if (!icon) return;
+
+    icon.classList.remove('emerald-price-cheap', 'emerald-price-fair', 'emerald-price-expensive');
+
+    const ratio = offerPrice / marketPrice;
+    let priceClass;
+    let label;
+
+    if (ratio <= PRICE_CHEAP_RATIO) {
+      priceClass = 'emerald-price-cheap';
+      label = 'abaixo do mercado';
+    } else if (ratio >= PRICE_EXPENSIVE_RATIO) {
+      priceClass = 'emerald-price-expensive';
+      label = 'acima do mercado';
+    } else {
+      priceClass = 'emerald-price-fair';
+      label = 'preço justo';
+    }
+
+    icon.classList.add(priceClass);
+    sealWrapper.title = `★ Pokémon Emerald Pokédex — ${formatBRL(offerPrice)} (${label}, preço justo de mercado ${formatBRL(marketPrice)} na Liga Pokemon)`;
+
+    const priceTag = sealWrapper.querySelector('.emerald-price-tag');
+    if (priceTag) {
+      priceTag.classList.remove('emerald-price-cheap', 'emerald-price-fair', 'emerald-price-expensive');
+      priceTag.classList.add(priceClass, 'emerald-price-tag-visible');
+      priceTag.textContent = formatBRL(marketPrice);
+    }
+  }
+
   // Processa cards no site
   function processCards() {
     if (isCardDetailPage()) {
@@ -640,8 +735,22 @@
           const image = card.querySelector('img');
 
           if (image) {
-            addEmeraldSeal(image);
-            foundCount++;
+            const sealWrapper = addEmeraldSeal(image);
+
+            if (sealWrapper) {
+              foundCount++;
+
+              const offerPrice = extractCardPrice(card);
+              if (offerPrice != null) {
+                enqueuePriceEval({
+                  sealWrapper,
+                  offerPrice,
+                  pokemonName,
+                  details: extractCardDetails(card),
+                  cardCode: extractCardCode(card.textContent)
+                });
+              }
+            }
           }
 
           const owned = isOwnedCard(pokemonName);
@@ -798,17 +907,30 @@
 
   // Adiciona selo do Rayquaza
   function addEmeraldSeal(imageElement) {
-    if (imageElement.parentElement.querySelector('.emerald-seal-wrapper')) return;
+    if (imageElement.parentElement.querySelector('.emerald-seal-wrapper')) return null;
+
+    // Não aplica o selo (36x36) em imagens pequenas (ícones, flags de idioma
+    // etc.) — evita distorcer visualmente elementos que não são foto de carta
+    const imgRect = imageElement.getBoundingClientRect();
+    if (imgRect.width < 60 || imgRect.height < 60) return null;
 
     const sealWrapper = document.createElement('div');
     sealWrapper.className = 'emerald-seal-wrapper';
     sealWrapper.title = '★ Pokémon Emerald Pokédex';
+
+    // Etiqueta com o preço justo de mercado — some até a comparação de preço
+    // (evaluateCardPrice/applyPriceIndicator) resolver e preencher o valor
+    const priceTag = document.createElement('div');
+    priceTag.className = 'emerald-price-tag';
 
     const sealImage = document.createElement('img');
     sealImage.src = RAYQUAZA_BADGE_URL;
     sealImage.className = 'emerald-badge-icon';
     sealImage.alt = 'Emerald';
 
+    // Ordem importa: com flex-direction column, a etiqueta (1º filho) fica
+    // empilhada acima do selo (2º filho)
+    sealWrapper.appendChild(priceTag);
     sealWrapper.appendChild(sealImage);
 
     sealWrapper.addEventListener('click', (e) => {
@@ -821,6 +943,8 @@
       imgParent.style.position = 'relative';
       imgParent.appendChild(sealWrapper);
     }
+
+    return sealWrapper;
   }
 
   // Observer para mudanças no DOM
