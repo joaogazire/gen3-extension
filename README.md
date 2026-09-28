@@ -13,7 +13,7 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
   - **últimas 5 vendas** realizadas iguais, com a média (exige login na Liga — as vendas são buscadas pela aba oculta da Liga com a sua sessão)
 - ✅ **Selo de veredito ao lado do nome** (ex.: `Treecko (#055/∞) ✓`): compara o preço da loja com a média das últimas vendas iguais (sem vendas: média dos anúncios iguais; sem anúncios: médio geral) — **✓ verde** mais de 5% abaixo (compensa), **− amarelo** até 10% acima (na média), **✕ vermelho** mais de 10% acima
 - ⚡ **Modo APENAS EMERALD**: Oculta itens que não pertencem à Pokédex do Emerald
-- 📋 **Modo APENAS FALTANDO**: Oculta cartas que você já possui no Emerald TCG Tracker
+- 📋 **Modo APENAS FALTANDO**: Oculta cartas de Pokémon que você já possui no Emerald TCG Tracker (o Tracker guarda uma carta por Pokémon, então qualquer impressão de um Pokémon já coletado é ocultada)
 - 💰 **Comparação de Preços**: No carrinho, mostra o **mín. e o médio da Liga Pokemon** ao lado de cada carta (cor comparando com o preço do carrinho) e a loja suportada mais barata com **exatamente** o mesmo idioma e estado de conservação
 - 🔄 **Sincronização do Tracker**: Carrega save do Emerald TCG Tracker via link de compartilhamento
 
@@ -21,10 +21,9 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 
 - [freitastcg.com.br](https://www.freitastcg.com.br)
 - [ligapokemon.com.br](https://www.ligapokemon.com.br)
-- [ligamagic.com.br](https://www.ligamagic.com.br)
 - [colecionageek.com](https://www.colecionageek.com)
 - [funtako.com.br](https://funtako.com.br)
-- [www.rasengan.com.br](https://www.www.rasengan.com.br)
+- [rasengan.com.br](https://www.rasengan.com.br)
 - [pokemonstore.com.br](https://www.pokemonstore.com.br)
 - [magicdomain.com.br](https://www.magicdomain.com.br)
 - [cardgame.com.br](https://www.cardgame.com.br)
@@ -124,47 +123,44 @@ verificação e recarregue a página da loja.
 
 1. Adicione cartas ao carrinho em qualquer site suportado
 2. Acesse a página do carrinho
-3. A extensão busca automaticamente o menor preço pra mesma carta na **Liga Pokemon**
-   e em todas as outras lojas suportadas, com o **mesmo idioma e exatamente a mesma
-   conservação** (ex: Português + Near Mint só compara com Português + Near Mint).
-   Nas lojas de vendedor único (todas exceto Liga Pokemon), só entram na comparação
-   os casos em que dá pra garantir a mesma conservação com segurança: Near Mint e
-   Danificada/Damaged — os níveis intermediários (Slightly/Moderately/Heavily
-   Played) usam uma escala diferente da Liga Pokemon e ficam de fora pra não simular
-   uma correspondência que não existe
-4. Se o carrinho mostrar o código de edição/coleção da carta (ex: `010/165`), a extensão usa esse código pra comparar com a **mesma edição exata** — evita comparar, por exemplo, um Charizard de um set com o preço de um Charizard de outro set. Nas lojas de vendedor único, o código da edição é obrigatório (sem ele, essas lojas são puladas); na Liga Pokemon, sem o código ainda dá pra comparar só pelo nome
-5. O preço é exibido ao lado direito do nome da carta, separado por uma barra:
-   - `Blaziken / R$ 45,00` (verde) → match exato por edição, idioma e conservação — passe o mouse pra ver de qual loja veio o preço
-   - `Blaziken ~ / R$ 45,00` (âmbar) → o carrinho não mostrou o código da edição, então a comparação foi feita só pelo nome na Liga Pokemon (pode ser uma edição diferente)
-   - Quando mais de uma fonte bate exatamente idioma+conservação (+edição), aparece
-     também o **preço justo** (média entre elas): `Blaziken / R$ 45,00 · justo R$ 52,30`
-     — o tooltip mostra quantas lojas entraram nessa média
-6. Se nenhuma fonte tiver um anúncio com idioma e conservação idênticos (e edição, quando aplicável), nada é exibido para aquela carta
-7. Além do preço pedido pelos anúncios ativos, a extensão também busca o histórico de
-   **Últimas Vendas** da Liga Pokemon (preço de venda já **realizada**, não só pedido) para a
-   mesma edição, idioma e conservação **Near Mint** (única conservação aceita aqui — os
-   níveis intermediários usam uma escala diferente e ficam de fora, mesmo critério das
-   lojas de vendedor único). Quando encontrada, some ao tooltip do preço (`vendido
-   recentemente: méd. R$ X`); se nenhum anúncio ativo bater os critérios mas houver
-   vendas recentes, aparece um selo cinza `vendido ~ R$ X` sozinho
-   > ⚠️ Essa parte específica (Últimas Vendas) foi implementada a partir da estrutura HTML
-   > de uma página específica, sem conseguir testar contra o site ao vivo (bloqueio do
-   > Cloudflare no meio do desenvolvimento) — confirme se está funcionando antes de confiar
-   > nela; se o seletor não bater, ela simplesmente não mostra nada (mesmo comportamento de
-   > qualquer fonte indisponível), sem quebrar o resto da comparação
+3. Ao lado do nome de cada carta aparece uma etiqueta
+   `Liga mín. R$ X · méd. R$ Y · <Loja> R$ Z`:
+   - **Liga Pokemon**: a referência mín./médio da Liga pra edição e variante
+     (normal/Foil/Reverse) — **não separa idioma nem conservação** (ver "De onde vem o
+     preço da Liga Pokemon"). A cor compara o preço do carrinho com o médio: verde até
+     95%, amarelo entre 95% e 110%, vermelho a partir de 110%. Se o carrinho não mostrar
+     o código da edição (ex.: `010/165`) e a Liga tiver mais de uma impressão com esse
+     nome, a etiqueta fica tracejada (a faixa pode misturar impressões)
+   - **Loja mais barata** entre as lojas de vendedor único suportadas, com a **mesma
+     edição, idioma e conservação**. Exige o código da edição no carrinho (sem ele as
+     lojas nem são consultadas) e só compara Near Mint e Danificada/Damaged — os níveis
+     intermediários (SP/MP/HP) usam outra escala e ficam de fora pra não simular uma
+     correspondência que não existe. As lojas são consultadas no máximo 4 por vez
+4. Passe o mouse na etiqueta pra ver a edição, o máximo da Liga e de qual loja veio o preço
+5. Se nem a Liga nem nenhuma loja bater, nada é exibido para aquela carta
+
+As **últimas vendas** realizadas ficam na página da carta (ver "Preço da Liga na Página
+da Carta"), não no carrinho.
 
 **Observação:** a Liga Pokemon e as lojas suportadas usam proteção Cloudflare contra acesso automatizado. A busca só funciona se o seu navegador já tiver uma sessão válida no site (ex: você já visitou o site normalmente antes). Se uma fonte bloquear o acesso, a extensão detecta isso, para de tentar só naquela fonte pro resto da sessão e avisa no console (F12) — as outras fontes continuam funcionando normalmente.
 
 ### Indicador de Preço na Listagem
 
 1. Ao navegar em qualquer site suportado, cada carta Emerald identificada recebe o selo do Rayquaza normalmente
-2. Em segundo plano (uma carta por vez, sem travar a página), a extensão busca **todos os anúncios da mesma carta na Liga Pokemon** — mesma edição (quando o código tipo `010/165` aparece no card), idioma e conservação — e calcula o **preço justo**: a média entre esses anúncios (não só o mais barato, pra um anúncio isolado fora da curva não distorcer a comparação)
+2. Em segundo plano (uma carta por vez, sem travar a página), a extensão busca a
+   carta na Liga Pokemon e lê a **referência mín./médio/máx.** da mesma edição (quando o
+   código tipo `010/165` ou o nome no formato da Liga aparece no card) e variante
+   (normal/Foil/Reverse). Essa referência **não separa idioma nem conservação** — uma
+   carta PT danificada pode aparecer como "barata" sem ser
 3. Quando a comparação chega, a borda do selo muda de cor:
-   - 🟢 **Verde**: preço da oferta ≤ 90% do preço justo (abaixo do mercado)
-   - 🟡 **Amarelo**: preço entre 90% e 110% do preço justo (preço justo)
-   - 🔴 **Vermelho**: preço ≥ 110% do preço justo (acima do mercado)
-4. **Clique no selo** pra revelar uma etiqueta com o valor do preço justo embaixo dele (clique de novo pra esconder); passe o mouse sobre o selo com a etiqueta aberta pra ver o preço da oferta e quantos anúncios entraram na média
-5. Se o card não mostrar um preço reconhecível, ou a Liga Pokemon não tiver nenhum anúncio com idioma/conservação/edição idênticos, o selo fica com a borda dourada padrão e o clique não revela nada (sem comparação)
+   - 🟢 **Verde**: preço da oferta ≤ 95% do médio da Liga
+   - 🟡 **Amarelo**: entre 95% e 110% do médio
+   - 🔴 **Vermelho**: ≥ 110% do médio
+4. **Clique no selo** pra revelar uma etiqueta com o médio da Liga embaixo dele (clique de
+   novo pra esconder); passe o mouse sobre o selo com a etiqueta aberta pra ver mín./médio/
+   máx., a edição e a variante usadas
+5. Se o card não mostrar um preço reconhecível, ou a Liga não tiver a carta/preço médio
+   pra essa impressão, o selo fica com a borda dourada padrão e o clique não revela nada
 
 A referência de mercado usada é só a Liga Pokemon (não as lojas de vendedor único), pra não disparar dezenas de requisições por carta numa página de listagem com muitos itens — diferente da comparação no carrinho, que tem poucos itens e pode se dar ao luxo de consultar todas as lojas. Os preços buscados ficam em cache (`browser.storage.local`) por 20 minutos, então navegar entre páginas de listagem ou ir da listagem pro carrinho reaproveita buscas recentes da mesma carta em vez de repetir a requisição.
 

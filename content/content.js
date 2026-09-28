@@ -255,9 +255,9 @@
     });
   }
 
-  // Faixas pra classificar o preço da oferta em relação ao menor preço de
-  // mercado (Liga Pokemon, mesma edição/idioma/conservação): abaixo de 90%
-  // do mercado é "barata", acima de 110% é "cara", entre os dois é "justa".
+  // Faixas pra classificar um preço em relação à referência (médio da Liga,
+  // ou média das vendas/anúncios iguais na página do item): até 95% é
+  // "barata", a partir de 110% é "cara", entre os dois é "justa".
   const PRICE_CHEAP_RATIO = 0.95;
   const PRICE_EXPENSIVE_RATIO = 1.1;
 
@@ -303,14 +303,11 @@
   }
 
   // Verifica se estamos no carrinho
+  // Casa só palavras inteiras do caminho/query — "cart" solto pegaria
+  // "cartas" (ex.: /cartas-pokemon) e jogaria a listagem no modo carrinho
   function isCartPage() {
-    const path = window.location.pathname;
-    const url = window.location.href;
-
-    return path.match(/\/(carrinho|cart|checkout|pedido)/) ||
-           url.includes('carrinho') ||
-           url.includes('cart') ||
-           url.includes('checkout');
+    const target = `${window.location.pathname}${window.location.search}`.toLowerCase();
+    return /(^|[\/=&?_-])(carrinho|cart|checkout|pedido)(?![a-z])/.test(target);
   }
 
   // Normaliza texto para comparação
@@ -323,28 +320,18 @@
       .trim();
   }
 
-  // Verifica se um nome de Pokémon pertence à Pokédex do Emerald
+  // Palavras normalizadas de um nome de carta. Hífen, "&" e barra viram
+  // espaço antes de normalizar ("Blaziken-FB", "Pikachu&Zekrom-GX"), senão
+  // normalizeText colaria as palavras
+  function nameWords(text) {
+    return normalizeText(String(text || '').replace(/[-_&/]/g, ' ')).split(/\s+/).filter(Boolean);
+  }
+
+  // Verifica se um nome de Pokémon pertence à Pokédex do Emerald. Compara
+  // palavra inteira: substring dava falso positivo em texto comum
+  // ("natural" -> natu, "abraço" -> abra, "Baron" -> aron)
   function isHoennPokemon(name) {
-    const normalized = normalizeText(name);
-    const cleanName = normalized
-      .replace(/\b(ex|gx|v|vmax|vstar|lv|lvx|break|tag team|prime|star|delta|holo|reverse|foil)\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    if (HOENN_POKEDEX.has(cleanName)) return true;
-
-    // Exige nome minimamente completo: evita que texto curto/genérico de
-    // elementos fora dos cards (menu, rodapé, alt de logo) vire falso
-    // positivo por ser substring de um nome de Pokémon (ex: "ra" -> "rayquaza")
-    if (cleanName.length < 4) return false;
-
-    for (const pokemon of HOENN_POKEDEX) {
-      if (cleanName === pokemon || cleanName.includes(pokemon)) {
-        return true;
-      }
-    }
-
-    return false;
+    return nameWords(name).some(word => HOENN_POKEDEX.has(word));
   }
 
   // Carrega cartas do usuário do storage.local
@@ -369,15 +356,9 @@
     if (!missingOnlyMode) return false;
     if (ownedCards.size === 0) return false;
 
-    const normalized = normalizeText(cardName);
-
-    for (const owned of ownedCards) {
-      if (normalized.includes(owned) || owned.includes(normalized)) {
-        return true;
-      }
-    }
-
-    return false;
+    // O Tracker guarda uma carta por Pokémon: basta uma palavra do nome da
+    // carta ser um Pokémon já coletado
+    return nameWords(cardName).some(word => ownedCards.has(word));
   }
 
   // Encontra o elemento que exibe o nome do Pokémon dentro de um card
@@ -465,13 +446,14 @@
   function classifyLanguageCondition(text) {
     text = text.toLowerCase();
 
-    // Idioma
+    // Idioma: nome por extenso ou sigla isolada/entre parênteses — "en "
+    // e "jp" soltos batiam no meio de qualquer texto
     let language = 'pt'; // padrão
-    if (text.includes('inglês') || text.includes('english') || text.includes('en ')) {
+    if (/\b(ingl[eê]s|english)\b|[(\[]en[)\]]|^\s*en\s*$/.test(text)) {
       language = 'en';
-    } else if (text.includes('japonês') || text.includes('japanese') || text.includes('jp')) {
+    } else if (/\b(japon[eê]s|japanese)\b|[(\[](jp|ja)[)\]]|^\s*(jp|ja)\s*$/.test(text)) {
       language = 'jp';
-    } else if (text.includes('espanhol') || text.includes('spanish')) {
+    } else if (/\b(espanhol|spanish|español)\b|[(\[]es[)\]]|^\s*es\s*$/.test(text)) {
       language = 'es';
     }
 
@@ -621,8 +603,9 @@
   function ligaExtrasKey(text) {
     const lower = String(text || '').toLowerCase();
     if (lower.includes('reverse')) return '3';
-    // sem \b no fim: o textContent cola células vizinhas ("FoilR$ 30,00")
-    if (/\bfoil|\bholo/.test(lower)) return '2';
+    // sem \b no fim: o textContent cola células vizinhas ("FoilR$ 30,00");
+    // mas "holon" (Holon Phantoms, Holon's Castform) não é holo
+    if (/\bfoil|\bholo(?!n)/.test(lower)) return '2';
     return '0';
   }
 
@@ -969,100 +952,6 @@
     return result;
   }
 
-  // Últimas Vendas da Liga Pokemon: preço de venda REALIZADA (não o preço
-  // pedido pelos anúncios ativos que fetchLigaPokemonPrice lê). Exige o
-  // código da edição — a página usa a busca "<nome> <código>" (ex.:
-  // "banette 234/217") pra abrir direto na carta certa.
-  //
-  // AVISO: implementado a partir do HTML de uma página específica que o
-  // usuário colou (não consegui testar ao vivo — a Liga Pokemon me bloqueou
-  // com o desafio do Cloudflare no meio da sessão). Se o seletor
-  // #container-lastsold-orders não bater com a estrutura real, a função só
-  // retorna null silenciosamente (mesmo comportamento de qualquer outra
-  // fonte indisponível) — não deve quebrar nada, mas precisa ser confirmado
-  // testando no navegador.
-  //
-  // Conservação: só aceita o extremo inequívoco NM (igual ao que
-  // classifyEcomQuality já faz pras lojas de vendedor único) — o código
-  // curto da Liga (NM/LP/MP/HP/D) não necessariamente equivale 1:1 à escala
-  // usada em classifyLanguageCondition, então os níveis do meio ficam de
-  // fora pra não fingir uma correspondência que não existe.
-  function classifySaleLanguage(code) {
-    const upper = String(code || '').trim().toUpperCase();
-    if (upper === 'EN') return 'en';
-    if (upper === 'JP' || upper === 'JPN') return 'jp';
-    if (upper === 'ES') return 'es';
-    if (upper === 'PT') return 'pt';
-    return null;
-  }
-
-  function classifySaleCondition(text) {
-    const code = String(text || '').trim().toUpperCase().split(/[\s-]/)[0];
-    if (code === 'NM') return 'nm';
-    return null;
-  }
-
-  async function fetchRecentSales(pokemonName, language, condition, cardCode) {
-    if (!cardCode) return null;
-
-    const cacheKey = `ligapokemon.com.br:sales:${normalizeText(pokemonName)}_${language}_${condition}_${cardCode}`;
-
-    const cached = getCachedPrice(cacheKey);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    if (blockedDomains.has('ligapokemon.com.br')) {
-      return null;
-    }
-
-    try {
-      const query = `${pokemonName} ${cardCode}`;
-      const searchUrl = `https://www.ligapokemon.com.br/?view=cards/search&tipo=1&card=${encodeURIComponent(query)}`;
-
-      const html = await fetchLigaHtml(searchUrl);
-      if (html == null) return null;
-
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const rows = doc.querySelectorAll('#container-lastsold-orders table.tabsales-card tbody tr');
-
-      const sales = [];
-      rows.forEach((row) => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 5) return;
-
-        const rowLanguage = classifySaleLanguage(cells[1].textContent);
-        if (rowLanguage !== language) return;
-
-        const rowCondition = classifySaleCondition(cells[2].textContent);
-        if (rowCondition !== condition) return;
-
-        const priceMatch = cells[4].textContent.match(/R\$\s*([\d.,]+)/);
-        if (!priceMatch) return;
-
-        const price = parseFloat(priceMatch[1].replace(/\./g, '').replace(',', '.'));
-        if (price > 0) sales.push(price);
-      });
-
-      const result = sales.length === 0
-        ? null
-        : {
-            avg: sales.reduce((sum, p) => sum + p, 0) / sales.length,
-            latest: sales[0],
-            count: sales.length
-          };
-
-      setCachedPrice(cacheKey, result);
-      return result;
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        console.error('[Emerald TCG] Erro ao buscar últimas vendas na Liga Pokemon:', err);
-      }
-      setCachedPrice(cacheKey, null);
-      return null;
-    }
-  }
-
   // Nome amigável de uma loja a partir do domínio, pro tooltip do badge de preço
   function storeDisplayName(domain) {
     const base = domain.replace(/\.com(\.br)?$/, '');
@@ -1078,6 +967,8 @@
   // válidos. `condition` vem null nos níveis intermediários (ver
   // classifyEcomQuality); `editionId` é o id da edição no cadastro da Liga
   // (link `txt_edicao=` da primeira coluna).
+  const FLAG_LANGUAGE = { pt: 'pt', en: 'en', jp: 'jp', ja: 'jp', es: 'es' };
+
   function readEcomItemRows(doc) {
     const rows = [];
 
@@ -1088,8 +979,13 @@
       const editionLink = cells[0].querySelector('a[href*="txt_edicao="]');
       const editionMatch = editionLink ? editionLink.getAttribute('href').match(/txt_edicao=(\d+)/) : null;
 
+      // Idioma pela sigla da bandeira (images/bandeiras/pt.svg -> "pt");
+      // sem bandeira reconhecida, pelo alt/title da imagem
       const langImg = cells[1].querySelector('img');
-      const language = classifyLanguageCondition(langImg ? (langImg.getAttribute('alt') || langImg.getAttribute('title') || '') : '').language;
+      const flagMatch = langImg ? (langImg.getAttribute('src') || '').match(/bandeiras\/([a-z]+)\.svg/i) : null;
+      const langKey = flagMatch ? flagMatch[1].toLowerCase() : null;
+      const language = FLAG_LANGUAGE[langKey] ||
+        classifyLanguageCondition(langImg ? (langImg.getAttribute('alt') || langImg.getAttribute('title') || '') : '').language;
 
       const condition = classifyEcomQuality(cells[2].textContent);
 
@@ -1103,9 +999,7 @@
       const price = parseFloat(priceMatch[1].replace(/\./g, '').replace(',', '.'));
       if (!(price > 0)) return;
 
-      // Sigla da bandeira (images/bandeiras/pt.svg -> "pt") e da qualidade
-      // ("Near Mint (NM)" no tooltip) — mesmas da Liga
-      const flagMatch = langImg ? (langImg.getAttribute('src') || '').match(/bandeiras\/([a-z]+)\.svg/i) : null;
+      // Sigla da qualidade ("Near Mint (NM)" no tooltip) — mesma da Liga
       const qualityTip = cells[2].querySelector('.tooltip');
       const qualityMatch = (qualityTip ? qualityTip.textContent : '').match(/\((M|NM|SP|MP|HP|D)\)/i) ||
         cells[2].textContent.replace(/Qualidade/i, '').match(/\b(M|NM|SP|MP|HP|D)\b/i);
@@ -1116,7 +1010,7 @@
         language,
         condition,
         price,
-        langKey: flagMatch ? flagMatch[1].toLowerCase() : null,
+        langKey,
         qualityAcron: qualityMatch ? qualityMatch[1].toUpperCase() : null,
         extrasLabels: extrasCell.textContent.split(',').map(e => e.trim()).filter(Boolean),
         extrasKey: ligaExtrasKey(cells[3].textContent),
@@ -1501,6 +1395,25 @@
     }
   }
 
+  // Buscas simultâneas nas lojas por item do carrinho — com 30+ lojas, tudo
+  // de uma vez eram dezenas de requisições (x2: busca + item) por carta
+  const STORE_FETCH_CONCURRENCY = 4;
+
+  // Roda `fn` sobre `items` com no máximo `limit` em andamento; devolve os
+  // resultados na mesma ordem
+  async function mapWithConcurrency(items, limit, fn) {
+    const results = new Array(items.length);
+    let next = 0;
+    async function worker() {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await fn(items[index]);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
+  }
+
   // Processa preços no carrinho
   async function processCartPrices() {
     console.log('[Emerald TCG] Processando preços do carrinho...');
@@ -1554,26 +1467,24 @@
           fullName: extractLigaCardName(nameNode.textContent) || extractLigaCardName(item.textContent),
           extrasKey: ligaExtrasKey(item.textContent)
         });
-        const storePromises = ECOM_STORE_DOMAINS
-          .filter(domain => domain !== currentDomain)
-          .map(domain => fetchStorePrice(domain, pokemonName, details.language, details.condition, cardCode));
+        // Sem código da edição as lojas nem são consultadas (fetchStorePrice
+        // exige); com ele, no máximo STORE_FETCH_CONCURRENCY por vez
+        const storeDomains = cardCode
+          ? ECOM_STORE_DOMAINS.filter(domain => domain !== currentDomain)
+          : [];
 
-        const [liga, storeSettled, recentSales] = await Promise.all([
+        const [liga, storeResults] = await Promise.all([
           ligaPromise.catch(() => null),
-          Promise.allSettled(storePromises),
-          fetchRecentSales(pokemonName, details.language, details.condition, cardCode)
+          mapWithConcurrency(storeDomains, STORE_FETCH_CONCURRENCY, domain =>
+            fetchStorePrice(domain, pokemonName, details.language, details.condition, cardCode).catch(() => null))
         ]);
-        const storeResults = storeSettled
-          .filter(r => r.status === 'fulfilled' && r.value)
-          .map(r => r.value);
-        const bestStore = storeResults.length > 0
-          ? storeResults.reduce((min, r) => (r.price < min.price ? r : min), storeResults[0])
+        const found = storeResults.filter(Boolean);
+        const bestStore = found.length > 0
+          ? found.reduce((min, r) => (r.price < min.price ? r : min), found[0])
           : null;
 
         if (liga || bestStore) {
-          addPriceComparison(nameNode, liga, bestStore, cartPrice, recentSales);
-        } else if (recentSales) {
-          addRecentSalesOnly(nameNode, recentSales);
+          addPriceComparison(nameNode, liga, bestStore, cartPrice);
         }
 
         await sleep(400);
@@ -1592,7 +1503,7 @@
   // Etiqueta com o mín./médio da Liga Pokemon (e a loja mais barata, se
   // alguma bater edição/idioma/conservação) ao lado do nome da carta no
   // carrinho — a cor compara o preço do carrinho com o médio da Liga
-  function addPriceComparison(nameNode, liga, bestStore, cartPrice, recentSales) {
+  function addPriceComparison(nameNode, liga, bestStore, cartPrice) {
     if (nameNode.querySelector('.emerald-price-compare')) return;
 
     const compareElement = document.createElement('span');
@@ -1620,26 +1531,8 @@
       tips.push(`Menor preço em outra loja: ${bestStore.store} ${formatBRL(bestStore.price)} (mesma edição, idioma e conservação)`);
     }
 
-    if (recentSales) {
-      tips.push(`Vendido recentemente na Liga: méd. ${formatBRL(recentSales.avg)} (última: ${formatBRL(recentSales.latest)}, ${recentSales.count} venda${recentSales.count > 1 ? 's' : ''})`);
-    }
-
     compareElement.textContent = parts.join(' · ');
     compareElement.title = tips.join('\n');
-
-    nameNode.appendChild(compareElement);
-  }
-
-  // Quando nenhum anúncio ativo bate idioma/edição/conservação, mas existem
-  // vendas recentes registradas na Liga Pokemon com esses mesmos critérios —
-  // mostra só o histórico de vendas (preço realizado, não pedido)
-  function addRecentSalesOnly(nameNode, recentSales) {
-    if (nameNode.querySelector('.emerald-price-compare')) return;
-
-    const compareElement = document.createElement('span');
-    compareElement.className = 'emerald-price-compare emerald-price-sales';
-    compareElement.textContent = `vendido ~ ${formatBRL(recentSales.avg)}`;
-    compareElement.title = `Média de ${recentSales.count} venda${recentSales.count > 1 ? 's' : ''} recente${recentSales.count > 1 ? 's' : ''} na Liga Pokemon (última: ${formatBRL(recentSales.latest)})`;
 
     nameNode.appendChild(compareElement);
   }
@@ -1981,41 +1874,6 @@
       }
       if (message.action === 'reloadOwnedCards') {
         loadOwnedCards();
-      }
-      if (message.action === 'applyMissingFilter') {
-        // Aplica filtro de cartas faltantes
-        if (message.missingCards && Array.isArray(message.missingCards)) {
-          // Atualiza ownedCards com base nas missingCards
-          // missingCards contém nomes das cartas que estão faltando (não coletadas)
-          const missingSet = new Set(message.missingCards.map(c => normalizeText(c)));
-
-          // Mostra apenas cards que estão na lista de faltantes
-          document.querySelectorAll(CARD_SELECTORS_JOINED).forEach(card => {
-            const isEmerald = card.getAttribute('data-emerald') === 'true';
-            if (!isEmerald) {
-              card.style.display = 'none';
-              return;
-            }
-
-            const pokemonName = extractPokemonName(card);
-            if (!pokemonName) {
-              card.style.display = 'none';
-              return;
-            }
-
-            const normalizedName = normalizeText(pokemonName);
-            let isMissing = false;
-
-            for (const missing of missingSet) {
-              if (normalizedName.includes(missing) || missing.includes(normalizedName)) {
-                isMissing = true;
-                break;
-              }
-            }
-
-            card.style.display = isMissing ? '' : 'none';
-          });
-        }
       }
     });
 

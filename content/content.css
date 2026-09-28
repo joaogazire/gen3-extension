@@ -114,11 +114,6 @@
   border-style: dashed;
 }
 
-.emerald-price-compare.emerald-price-sales {
-  border-color: rgba(160, 160, 160, 0.5);
-  color: #c9c9c9;
-}
-
 .emerald-price-compare.emerald-price-cheap,
 .emerald-row-price.emerald-price-cheap {
   border-color: #2ab977;
