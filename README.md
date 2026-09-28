@@ -6,10 +6,15 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 
 - ⚡ **Identificação Emerald**: Detecta automaticamente Pokémon da Pokédex do Emerald (202 Pokémon) em sites de TCG
 - 🏅 **Badge do Rayquaza**: Adiciona um selo verde e dourado no canto superior direito das cartas Emerald
-- 🚦 **Indicador de Preço na Listagem**: A borda do selo do Rayquaza muda de cor comparando o preço da oferta com o menor preço de mercado na Liga Pokemon (mesma edição/idioma/conservação, quando disponível): verde (abaixo do mercado), amarelo (preço justo) ou vermelho (acima do mercado)
+- 🚦 **Indicador de Preço na Listagem**: A borda do selo do Rayquaza muda de cor comparando o preço da oferta com o **preço médio da Liga Pokemon** pra mesma edição e variante (normal/Foil/Reverse): verde (abaixo), amarelo (perto) ou vermelho (acima). Clique no selo pra ver o médio numa etiqueta
+- 🏷️ **Preço da Liga na Página da Carta**: Nas lojas da mesma engine (Turno Zero, Freitas, Meruru...), a página do item mostra, pra cada variante da tabela (edição + idioma + qualidade + extras exatos):
+  - **anúncios iguais na Liga** agora: mín. / méd. / máx. (só os anúncios com preço em texto — a Liga oculta parte deles numa imagem, o painel diz quantos)
+  - **referência geral da edição** na Liga (mín. / médio / máx., qualquer idioma/qualidade)
+  - **últimas 5 vendas** realizadas iguais, com a média (exige login na Liga — as vendas são buscadas pela aba oculta da Liga com a sua sessão)
+- ✅ **Selo de veredito ao lado do nome** (ex.: `Treecko (#055/∞) ✓`): compara o preço da loja com a média das últimas vendas iguais (sem vendas: média dos anúncios iguais; sem anúncios: médio geral) — **✓ verde** mais de 5% abaixo (compensa), **− amarelo** até 10% acima (na média), **✕ vermelho** mais de 10% acima
 - ⚡ **Modo APENAS EMERALD**: Oculta itens que não pertencem à Pokédex do Emerald
 - 📋 **Modo APENAS FALTANDO**: Oculta cartas que você já possui no Emerald TCG Tracker
-- 💰 **Comparação de Preços**: No carrinho, compara com o menor valor entre a Liga Pokemon e as lojas suportadas (mercado brasileiro) para cartas com **exatamente** o mesmo idioma e estado de conservação
+- 💰 **Comparação de Preços**: No carrinho, mostra o **mín. e o médio da Liga Pokemon** ao lado de cada carta (cor comparando com o preço do carrinho) e a loja suportada mais barata com **exatamente** o mesmo idioma e estado de conservação
 - 🔄 **Sincronização do Tracker**: Carrega save do Emerald TCG Tracker via link de compartilhamento
 
 ## Sites Suportados
@@ -17,6 +22,9 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 - [freitastcg.com.br](https://www.freitastcg.com.br)
 - [ligapokemon.com.br](https://www.ligapokemon.com.br)
 - [ligamagic.com.br](https://www.ligamagic.com.br)
+- [colecionageek.com](https://www.colecionageek.com)
+- [funtako.com.br](https://funtako.com.br)
+- [www.rasengan.com.br](https://www.www.rasengan.com.br)
 - [pokemonstore.com.br](https://www.pokemonstore.com.br)
 - [magicdomain.com.br](https://www.magicdomain.com.br)
 - [cardgame.com.br](https://www.cardgame.com.br)
@@ -35,6 +43,23 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 - [stoptcg.com.br](https://www.stoptcg.com.br)
 - [manycollections.com.br](https://www.manycollections.com.br)
 - [gajosocollectors.com.br](https://www.gajosocollectors.com.br)
+- [daiverso.com.br](https://www.daiverso.com.br)
+- [sugoitcg.com.br](https://www.sugoitcg.com.br)
+- [mypcards.com](https://mypcards.com)
+- [omgtcg.com.br](https://omgtcg.com.br)
+- [muitocolecionaveis.com.br](https://www.muitocolecionaveis.com.br)
+- [kamusari.com.br](https://www.kamusari.com.br)
+- [bazardebagda.com.br](https://www.bazardebagda.com.br)
+- [cardsofparadise.com.br](https://www.cardsofparadise.com.br)
+- [chucktcg.com.br](https://www.chucktcg.com.br)
+- [flowstore.com.br](https://www.flowstore.com.br)
+- [kinoenecards.com.br](https://www.kinoenecards.com.br)
+- [montshop.com.br](https://www.montshop.com.br)
+- [playgroundgames.com.br](https://www.playgroundgames.com.br)
+- [ugcardshop.com.br](https://www.ugcardshop.com.br)
+- [xplace.com.br](https://www.xplace.com.br)
+- [turnozerotcg.com.br](https://www.turnozerotcg.com.br)
+- [vilacelta.com.br](https://www.vilacelta.com.br)
 
 ## Instalação
 
@@ -66,6 +91,35 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 6. Da próxima vez, clicar em sincronizar de novo sem colar um link reaproveita o
    último save carregado
 
+### De onde vem o preço da Liga Pokemon
+
+A referência é o **menor / médio / maior** que a própria Liga calcula por edição e
+por variante (normal, Foil, Reverse Foil) — lido do JSON `cards_editions` da página
+da carta. Os preços de cada anúncio não são usados: a Liga ofusca a maioria deles
+num sprite de imagem, então uma média feita pela extensão sairia enviesada. Essa
+referência **não separa idioma nem conservação**.
+
+A carta é buscada pelo nome no formato do cadastro da Liga (`Gardevoir ex (233/091)`,
+`Mudkip (#057/∞)`). Nas lojas da mesma engine, a edição exata vem do link da edição
+(`txt_edicao=`, mesmo id da Liga). Se a Liga devolver uma carta sem impressão com o
+mesmo número, nada é mostrado.
+
+A busca na Liga sai do **background script**, não do site da loja (no Firefox, o
+isolamento de cookies por site faz uma requisição feita de dentro da loja chegar na
+Liga sem a sessão dela). O Cloudflare da Liga desafia as páginas de carta, então a
+busca tem dois caminhos:
+
+1. **Requisição direta** — rápida, funciona quando o navegador já tem a liberação do
+   Cloudflare pra Liga;
+2. **Aba oculta** — se vier o desafio, a extensão abre a página da carta numa aba
+   oculta e inativa (permissão `tabHide`), deixa o navegador passar pelo desafio
+   automático como numa visita normal, lê a página e reaproveita a aba nas próximas
+   buscas (uma por vez). A aba fecha sozinha depois de 1 minuto sem uso.
+
+Se o Cloudflare pedir o desafio **interativo** (a caixinha "sou humano"), não dá pra
+passar sozinho: o painel mostra um link **Abrir a carta na Liga** — clique, passe pela
+verificação e recarregue a página da loja.
+
 ### Comparação de Preços no Carrinho
 
 1. Adicione cartas ao carrinho em qualquer site suportado
@@ -83,24 +137,38 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
    - `Blaziken / R$ 45,00` (verde) → match exato por edição, idioma e conservação — passe o mouse pra ver de qual loja veio o preço
    - `Blaziken ~ / R$ 45,00` (âmbar) → o carrinho não mostrou o código da edição, então a comparação foi feita só pelo nome na Liga Pokemon (pode ser uma edição diferente)
    - Quando mais de uma fonte bate exatamente idioma+conservação (+edição), aparece
-     também a média entre elas: `Blaziken / R$ 45,00 · méd. R$ 52,30` — o tooltip
-     mostra quantas lojas entraram nessa média
+     também o **preço justo** (média entre elas): `Blaziken / R$ 45,00 · justo R$ 52,30`
+     — o tooltip mostra quantas lojas entraram nessa média
 6. Se nenhuma fonte tiver um anúncio com idioma e conservação idênticos (e edição, quando aplicável), nada é exibido para aquela carta
+7. Além do preço pedido pelos anúncios ativos, a extensão também busca o histórico de
+   **Últimas Vendas** da Liga Pokemon (preço de venda já **realizada**, não só pedido) para a
+   mesma edição, idioma e conservação **Near Mint** (única conservação aceita aqui — os
+   níveis intermediários usam uma escala diferente e ficam de fora, mesmo critério das
+   lojas de vendedor único). Quando encontrada, some ao tooltip do preço (`vendido
+   recentemente: méd. R$ X`); se nenhum anúncio ativo bater os critérios mas houver
+   vendas recentes, aparece um selo cinza `vendido ~ R$ X` sozinho
+   > ⚠️ Essa parte específica (Últimas Vendas) foi implementada a partir da estrutura HTML
+   > de uma página específica, sem conseguir testar contra o site ao vivo (bloqueio do
+   > Cloudflare no meio do desenvolvimento) — confirme se está funcionando antes de confiar
+   > nela; se o seletor não bater, ela simplesmente não mostra nada (mesmo comportamento de
+   > qualquer fonte indisponível), sem quebrar o resto da comparação
 
 **Observação:** a Liga Pokemon e as lojas suportadas usam proteção Cloudflare contra acesso automatizado. A busca só funciona se o seu navegador já tiver uma sessão válida no site (ex: você já visitou o site normalmente antes). Se uma fonte bloquear o acesso, a extensão detecta isso, para de tentar só naquela fonte pro resto da sessão e avisa no console (F12) — as outras fontes continuam funcionando normalmente.
 
 ### Indicador de Preço na Listagem
 
 1. Ao navegar em qualquer site suportado, cada carta Emerald identificada recebe o selo do Rayquaza normalmente
-2. Em segundo plano (uma carta por vez, sem travar a página), a extensão busca o **menor preço da mesma carta na Liga Pokemon** — mesma edição (quando o código tipo `010/165` aparece no card), idioma e conservação
+2. Em segundo plano (uma carta por vez, sem travar a página), a extensão busca **todos os anúncios da mesma carta na Liga Pokemon** — mesma edição (quando o código tipo `010/165` aparece no card), idioma e conservação — e calcula o **preço justo**: a média entre esses anúncios (não só o mais barato, pra um anúncio isolado fora da curva não distorcer a comparação)
 3. Quando a comparação chega, a borda do selo muda de cor:
-   - 🟢 **Verde**: preço da oferta ≤ 90% do menor preço encontrado na Liga Pokemon (abaixo do mercado)
-   - 🟡 **Amarelo**: preço entre 90% e 110% do mercado (preço justo)
-   - 🔴 **Vermelho**: preço ≥ 110% do mercado (acima do mercado)
-4. Passe o mouse sobre o selo pra ver o preço da oferta e o preço de mercado usado na comparação
-5. Se o card não mostrar um preço reconhecível, ou a Liga Pokemon não tiver um anúncio com idioma/conservação/edição idênticos, o selo fica com a borda dourada padrão (sem comparação)
+   - 🟢 **Verde**: preço da oferta ≤ 90% do preço justo (abaixo do mercado)
+   - 🟡 **Amarelo**: preço entre 90% e 110% do preço justo (preço justo)
+   - 🔴 **Vermelho**: preço ≥ 110% do preço justo (acima do mercado)
+4. **Clique no selo** pra revelar uma etiqueta com o valor do preço justo embaixo dele (clique de novo pra esconder); passe o mouse sobre o selo com a etiqueta aberta pra ver o preço da oferta e quantos anúncios entraram na média
+5. Se o card não mostrar um preço reconhecível, ou a Liga Pokemon não tiver nenhum anúncio com idioma/conservação/edição idênticos, o selo fica com a borda dourada padrão e o clique não revela nada (sem comparação)
 
-A referência de mercado usada é só a Liga Pokemon (não as lojas de vendedor único), pra não disparar dezenas de requisições por carta numa página de listagem com muitos itens — diferente da comparação no carrinho, que tem poucos itens e pode se dar ao luxo de consultar todas as lojas.
+A referência de mercado usada é só a Liga Pokemon (não as lojas de vendedor único), pra não disparar dezenas de requisições por carta numa página de listagem com muitos itens — diferente da comparação no carrinho, que tem poucos itens e pode se dar ao luxo de consultar todas as lojas. Os preços buscados ficam em cache (`browser.storage.local`) por 20 minutos, então navegar entre páginas de listagem ou ir da listagem pro carrinho reaproveita buscas recentes da mesma carta em vez de repetir a requisição.
+
+Nas lojas de vendedor único (mesma engine — freitastcg, meruru, stoptcg, etc.), o preço da listagem vem ofuscado em sprite CSS (técnica anti-scraping: os dígitos não existem como texto no HTML). Quando isso acontece, a extensão abre em segundo plano a página do próprio item (link já presente no card) pra ler o preço em texto normal — mesma fila serial e mesmo throttling da comparação com a Liga Pokemon, só que como um passo a mais antes dela.
 
 ## Estrutura
 

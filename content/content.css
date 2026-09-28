@@ -3,7 +3,7 @@
  */
 
 /* Wrapper do selo - encostado no canto superior direito da imagem, com a
-   etiqueta de preço justo empilhada acima do ícone */
+   etiqueta de preço justo empilhada logo abaixo do ícone */
 .emerald-seal-wrapper {
   position: absolute;
   top: 0;
@@ -93,4 +93,170 @@
 
 .emerald-seal-wrapper:hover {
   animation: none;
+}
+
+/* Etiqueta de preço no carrinho (mín./médio da Liga + loja mais barata).
+   A cor compara o preço do carrinho com o médio da Liga */
+.emerald-price-compare {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  background: rgba(20, 20, 20, 0.85);
+  border: 1px solid rgba(244, 201, 93, 0.6);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #f4f4f4;
+  white-space: nowrap;
+}
+
+.emerald-price-compare.emerald-price-approx {
+  border-style: dashed;
+}
+
+.emerald-price-compare.emerald-price-sales {
+  border-color: rgba(160, 160, 160, 0.5);
+  color: #c9c9c9;
+}
+
+.emerald-price-compare.emerald-price-cheap,
+.emerald-row-price.emerald-price-cheap {
+  border-color: #2ab977;
+  color: #8fe6a9;
+}
+
+.emerald-price-compare.emerald-price-fair,
+.emerald-row-price.emerald-price-fair {
+  border-color: #f4c95d;
+  color: #f4c95d;
+}
+
+.emerald-price-compare.emerald-price-expensive,
+.emerald-row-price.emerald-price-expensive {
+  border-color: #e05d5d;
+  color: #ff9a9a;
+}
+
+/* Painel de preço da Liga na página da carta (lojas da engine compartilhada).
+   clear: o bloco do nome (.nomes_cards) é float:left nessas lojas */
+.emerald-item-panel {
+  clear: both;
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid rgba(244, 201, 93, 0.6);
+  border-left: 3px solid #2ab977;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #f4f4f4;
+}
+
+.emerald-item-panel.emerald-item-panel-empty {
+  border-left-color: #777;
+  color: #bbb;
+}
+
+.emerald-item-panel-title {
+  font-weight: 700;
+  color: #f4c95d;
+  margin-bottom: 2px;
+}
+
+a.emerald-item-panel-line {
+  display: block;
+  color: #f4f4f4;
+  text-decoration: none;
+}
+
+a.emerald-item-panel-line:hover {
+  text-decoration: underline;
+}
+
+/* Selo ao lado de cada preço da tabela de variantes: % do médio da Liga */
+.emerald-row-price {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  background: rgba(20, 20, 20, 0.85);
+  border: 1px solid rgba(244, 201, 93, 0.6);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+a.emerald-item-panel-action {
+  color: #f4c95d;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+a.emerald-item-panel-title {
+  display: block;
+  color: #f4c95d;
+  text-decoration: none;
+}
+
+a.emerald-item-panel-title:hover {
+  text-decoration: underline;
+}
+
+.emerald-item-variant + .emerald-item-variant {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(244, 201, 93, 0.25);
+}
+
+.emerald-item-variant-head {
+  font-weight: 700;
+  color: #fff;
+}
+
+.emerald-item-panel-line {
+  color: #f4f4f4;
+}
+
+.emerald-item-panel-muted {
+  color: #a9a9a9;
+}
+
+.emerald-sale-chip {
+  display: inline-block;
+  margin: 2px 4px 0 0;
+  padding: 0 6px;
+  border: 1px solid rgba(244, 201, 93, 0.45);
+  border-radius: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Selo ao lado do nome da carta: ✓ compensa / − na média / ✕ acima */
+.emerald-verdict {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  margin-left: 8px;
+  border-radius: 50%;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+  vertical-align: middle;
+  color: #fff;
+  cursor: help;
+}
+
+.emerald-verdict.emerald-price-cheap {
+  background: #2ab977;
+}
+
+.emerald-verdict.emerald-price-fair {
+  background: #e8b923;
+  color: #1a1a1a;
+}
+
+.emerald-verdict.emerald-price-expensive {
+  background: #e05d5d;
 }
