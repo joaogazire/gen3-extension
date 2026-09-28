@@ -2,8 +2,7 @@
  * Identifica cartas do set Emerald (ex9) em sites de TCG e adiciona selo do Rayquaza
  * Modo APENAS EMERALD: oculta itens que não pertencem à Pokédex do Emerald
  * Modo APENAS FALTANDO: oculta itens que o usuário já possui no Emerald TCG Tracker
- * Carrinho: Compara preços com a Liga Pokemon e com as lojas de vendedor único
- * suportadas (mesma engine de e-commerce — ver ECOM_STORE_DOMAINS)
+ * Carrinho: mín./médio da Liga Pokemon e selo de preço em cada carta
  */
 
 (function() {
@@ -107,47 +106,6 @@
 
   const RAYQUAZA_BADGE_URL = browser.runtime.getURL('icons/rayquaza_badge.png');
 
-  // Lojas de vendedor único que rodam na mesma engine de e-commerce (mesma
-  // assinatura "(c) ... LigaMagic" / assets em sbrauble.com) — cada uma vende
-  // só o próprio estoque, então dá pra comparar preço direto com cada uma.
-  // ligamagic.com.br fica de fora: é o marketplace irmão da Liga Pokemon
-  // (foco em Magic), não uma loja desse tipo.
-  const ECOM_STORE_DOMAINS = [
-    'freitastcg.com.br',
-    'pokemonstore.com.br',
-    'magicdomain.com.br',
-    'cardgame.com.br',
-    'mox.com.br',
-    'gamepod.com.br',
-    'playground.com.br',
-    'cardshall.com.br',
-    'supernovahobbystore.com.br',
-    'epicgame.com.br',
-    'epicone.com.br',
-    'meruru.com.br',
-    'lojadokooper.com.br',
-    'viptcg.com',
-    'reidotcg.com',
-    'jimmietcg.com.br',
-    'stoptcg.com.br',
-    'manycollections.com.br',
-    'gajosocollectors.com.br',
-    'daiverso.com.br',
-    'sugoitcg.com.br',
-    'muitocolecionaveis.com.br',
-    'kamusari.com.br',
-    'bazardebagda.com.br',
-    'cardsofparadise.com.br',
-    'chucktcg.com.br',
-    'flowstore.com.br',
-    'kinoenecards.com.br',
-    'montshop.com.br',
-    'playgroundgames.com.br',
-    'ugcardshop.com.br',
-    'xplace.com.br',
-    'turnozerotcg.com.br'
-  ];
-
   // Seletores genéricos de "card"/linha de produto, usados tanto pra achar
   // cards numa listagem quanto pra decidir se uma página É uma listagem
   // (isCardDetailPage). Mantido num único lugar pra evitar que essa lista
@@ -180,12 +138,26 @@
   let ownedCards = new Set();
 
   // Cache de preços (Liga Pokemon + lojas), chave prefixada pela fonte.
-  // Persiste em browser.storage.local (TTL de 20min) pra sobreviver à
+  // Persiste em browser.storage.local (TTL de 2h) pra sobreviver à
   // navegação entre páginas — sem isso, cada página nova refaz as mesmas
   // buscas de carta já vistas na sessão de compra.
   const priceCache = new Map();
   const PRICE_CACHE_STORAGE_KEY = 'priceCache';
-  const PRICE_CACHE_TTL_MS = 20 * 60 * 1000;
+  const PRICE_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
+  // A referência geral da Liga (selo da busca) e o índice da busca por
+  // Pokémon mudam devagar: 24h. Anúncios, vendas etc. seguem com 2h.
+  const REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function cacheTtlFor(key) {
+    return key.startsWith('ligapokemon.com.br:ref:') || key.startsWith('ligapokemon.com.br:search:')
+      ? REFERENCE_CACHE_TTL_MS
+      : PRICE_CACHE_TTL_MS;
+  }
+
+  // Requisições de rede feitas por esta página (Liga e página de item). A
+  // fila de preços compara antes/depois de cada carta: se tudo veio do
+  // cache, não espera o intervalo entre cartas
+  let networkRequests = 0;
   const PRICE_CACHE_FLUSH_DELAY_MS = 2000;
   let priceCacheDirty = false;
   let priceCacheFlushTimeout = null;
@@ -199,7 +171,7 @@
       if (stored && typeof stored === 'object') {
         const now = Date.now();
         for (const [key, entry] of Object.entries(stored)) {
-          if (entry && typeof entry.fetchedAt === 'number' && (now - entry.fetchedAt) < PRICE_CACHE_TTL_MS) {
+          if (entry && typeof entry.fetchedAt === 'number' && (now - entry.fetchedAt) < cacheTtlFor(key)) {
             priceCache.set(key, entry);
           }
         }
@@ -216,7 +188,7 @@
   function getCachedPrice(key) {
     const entry = priceCache.get(key);
     if (!entry) return undefined;
-    if ((Date.now() - entry.fetchedAt) >= PRICE_CACHE_TTL_MS) {
+    if ((Date.now() - entry.fetchedAt) >= cacheTtlFor(key)) {
       priceCache.delete(key);
       return undefined;
     }
@@ -245,7 +217,7 @@
     const now = Date.now();
     const serializable = {};
     for (const [key, entry] of priceCache.entries()) {
-      if ((now - entry.fetchedAt) < PRICE_CACHE_TTL_MS) {
+      if ((now - entry.fetchedAt) < cacheTtlFor(key)) {
         serializable[key] = entry;
       }
     }
@@ -261,6 +233,45 @@
   const PRICE_CHEAP_RATIO = 0.95;
   const PRICE_EXPENSIVE_RATIO = 1.1;
 
+  // Selo de veredito (página da carta e busca): símbolo e significado por faixa
+  // Ícones em SVG (16x16): caractere de texto (✓ − ✕) sai descentralizado
+  // conforme a fonte da loja
+  const VERDICT_ICON = {
+    'emerald-price-cheap': 'M4.6 8.4l2.3 2.3 4.6-5',
+    'emerald-price-fair': 'M4.8 8h6.4',
+    'emerald-price-expensive': 'M5.4 5.4l5.2 5.2M10.6 5.4l-5.2 5.2',
+    'emerald-price-unknown': 'M6.2 6.3a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.4M8 11.6v.1'
+  };
+  const VERDICT_MEANING = {
+    'emerald-price-cheap': 'compensa',
+    'emerald-price-fair': 'na média ou um pouco acima',
+    'emerald-price-expensive': 'acima da média'
+  };
+  // Motivo de uma carta ficar sem comparação (selo cinza "?" na busca)
+  const UNKNOWN_REASON = {
+    'not-found': 'Sem comparação: a Liga Pokemon não tem essa carta, ou não tem preço pra essa impressão',
+    'no-offer': 'Sem comparação: não deu pra ler o preço desta loja',
+    blocked: 'Sem comparação: a Liga pediu verificação (Cloudflare) — abra a Liga, passe pela verificação e recarregue',
+    'rate-limited': 'Sem comparação: a loja limitou as requisições (erro 1015) — espere alguns minutos e recarregue',
+    'liga-limited': 'Sem comparação: a Liga Pokemon limitou as requisições (erro 1015) — espere alguns minutos e recarregue',
+    error: 'Sem comparação: erro ao buscar o preço (detalhes no console, F12)'
+  };
+
+  function createVerdictBadge(cls, extraClass = '') {
+    const badge = document.createElement('span');
+    badge.className = `emerald-verdict ${extraClass} ${cls}`.replace(/\s+/g, ' ').trim();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', VERDICT_ICON[cls]);
+    svg.appendChild(path);
+    badge.appendChild(svg);
+    return badge;
+  }
+
+  const PRICE_ELEMENT_SELECTOR = '.price, .valor, [class*="price"], [class*="valor"], .product-price, [class*="product-price"], .preco, [class*="preco"]';
+
   // Verifica se estamos em uma página de detalhes da carta
   function isCardDetailPage() {
     const path = window.location.pathname;
@@ -270,16 +281,6 @@
     // ?view=ecom/item&refid=... pra página de detalhes — não aparece no
     // pathname, só na query string, então o regex de path abaixo não pega.
     if (/[?&]view=ecom(?:%2f|\/)item\b/i.test(window.location.href)) {
-      return true;
-    }
-
-    // Página de uma carta na Liga Pokemon (?view=cards/card): o bloco de
-    // informações (edição, preços, gráfico de vendas) é montado pelo JS da
-    // Liga dentro de .container-item-info — os filtros de listagem
-    // escondiam esse bloco (classe com "item" e sem nome de Hoenn). Nada de
-    // selo nem filtro aqui; a busca/listagem da Liga continua normal.
-    if (/ligapokemon\.com\.br$/.test(window.location.hostname) &&
-        /[?&]view=cards(?:%2f|\/)card\b/i.test(window.location.href)) {
       return true;
     }
 
@@ -335,25 +336,29 @@
   }
 
   // Carrega cartas do usuário do storage.local
+  // Troca a coleção inteira só depois de ler (esvaziar antes deixava tudo
+  // "faltando" enquanto o storage respondia)
   function loadOwnedCards() {
-    ownedCards.clear();
-
     browser.storage.local.get(['trackerCards'], (data) => {
       if (data.trackerCards && Array.isArray(data.trackerCards)) {
+        const loaded = new Set();
         data.trackerCards.forEach(card => {
           if (card.collected === true && card.name) {
-            ownedCards.add(normalizeText(card.name));
+            loaded.add(normalizeText(card.name));
           }
         });
+        ownedCards = loaded;
         console.log(`[Emerald TCG] ${ownedCards.size} cartas carregadas`);
         applyFilters();
+        // O save pode ter mudado quais cartas faltam
+        flushDeferredPriceEvals();
       }
     });
   }
 
-  // Verifica se o usuário já possui a carta
+  // Verifica se o usuário já possui a carta (independe do filtro estar
+  // ligado — o filtro decide o que fazer com isso)
   function isOwnedCard(cardName) {
-    if (!missingOnlyMode) return false;
     if (ownedCards.size === 0) return false;
 
     // O Tracker guarda uma carta por Pokémon: basta uma palavra do nome da
@@ -478,16 +483,13 @@
     return { language, condition };
   }
 
-  // Extrai idioma e qualidade da carta do elemento
-  function extractCardDetails(element) {
-    return classifyLanguageCondition(element.textContent);
-  }
-
   // Código de edição/coleção da carta como o site mostra (ex: "010/165",
   // "TG14/TG30", "#057/∞" dos promos). Mantém zeros à esquerda e o "#" —
   // é o mesmo formato do nome da carta na Liga Pokemon e nas lojas da mesma
   // engine, então o código vai direto pra busca/comparação de texto.
-  const CARD_CODE_PATTERN = /(#?[A-Z]{0,4}\d{1,4}[a-z]?)\s*\/\s*([A-Z]{0,4}\d{1,4}|∞)/;
+  // Letras antes ("TG14", "SWSH145") e/ou depois do número ("012JP",
+  // "025PB", "055P" — impressões japonesas e variantes)
+  const CARD_CODE_PATTERN = /(#?[A-Z]{0,4}\d{1,4}[A-Za-z]{0,3})\s*\/\s*([A-Z]{0,4}\d{1,4}|∞)/;
 
   function extractCardCode(text) {
     const m = text.match(CARD_CODE_PATTERN);
@@ -501,9 +503,18 @@
     return String(num || '').replace(/^#/, '').replace(/^0+(?=\w)/, '').toUpperCase();
   }
 
+  // Elemento de preço de um card/linha, ignorando os da própria extensão
+  // (a etiqueta do selo, "emerald-price-tag", também casa com [class*="price"])
+  // e preferindo o que mostra "R$"
+  function findPriceElement(root) {
+    const candidates = [...root.querySelectorAll(PRICE_ELEMENT_SELECTOR)]
+      .filter(el => !el.closest('.emerald-seal-wrapper, .emerald-price-compare, .emerald-verdict, .emerald-item-panel'));
+    return candidates.find(el => /R\$/.test(el.textContent)) || candidates[0] || null;
+  }
+
   // Extrai o preço em R$ exibido no próprio card da listagem
   function extractCardPrice(card) {
-    const priceElement = card.querySelector('.price, .valor, [class*="price"], [class*="valor"], .product-price, [class*="product-price"], .preco, [class*="preco"]');
+    const priceElement = findPriceElement(card);
     const text = priceElement ? priceElement.textContent : card.textContent;
     const match = text.match(/R\$\s*([\d.,]+)/);
     if (!match) return null;
@@ -529,6 +540,23 @@
   // Domínios que já bloquearam acesso automatizado (Cloudflare) nesta sessão —
   // por domínio, pra um bloqueio numa fonte não parar a comparação nas outras.
   const blockedDomains = new Set();
+  // Os que limitaram as requisições (429 / erro 1015 do Cloudflare)
+  const rateLimitedDomains = new Set();
+
+  // Resposta de "muitas requisições" (429 — o erro 1015 do Cloudflare vem
+  // assim) ou de bloqueio: para de pedir àquela loja nesta página e NÃO
+  // guarda no cache (daqui a pouco pode voltar a responder)
+  function markIfRateLimited(domain, response) {
+    if (response.status === 429 || response.status === 1015) {
+      if (!rateLimitedDomains.has(domain)) {
+        console.warn(`[Emerald TCG] ${domain} limitou as requisições (erro 1015/429). Parando de consultar essa loja nesta página.`);
+      }
+      rateLimitedDomains.add(domain);
+      blockedDomains.add(domain);
+      return true;
+    }
+    return false;
+  }
 
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -553,6 +581,30 @@
   // da Liga e toma 403 do Cloudflare). Devolve o HTML, ou null se falhou —
   // e marca a Liga como bloqueada na sessão se veio o desafio do Cloudflare.
   let ligaBlockedNoticeShown = false;
+  // A Liga limitou as requisições (erro 1015): quanto falta da pausa que o
+  // background impôs
+  let ligaRateLimited = false;
+  let ligaRetryAfterMs = 0;
+
+  // Espera a pausa da Liga acabar (mostrando a contagem no mini Pikachu) e
+  // libera pra tentar de novo
+  async function waitLigaCooldown(onTick) {
+    const until = Date.now() + (ligaRetryAfterMs || 60000);
+    miniProgress.paused(until);
+    while (Date.now() < until) {
+      if (onTick) onTick(Math.ceil((until - Date.now()) / 1000));
+      await sleep(Math.min(1000, until - Date.now()));
+    }
+    ligaRateLimited = false;
+    ligaRetryAfterMs = 0;
+    miniProgress.resumed();
+  }
+
+  // Página de erro/bloqueio do Cloudflare (não é "carta não encontrada" —
+  // não pode ir pro cache)
+  function isCloudflareErrorPage(html) {
+    return /Error 10\d\d|You are being rate limited|cf-error-details|<title>[^<]*(Access denied|Attention Required|Just a moment)/i.test(html);
+  }
   // URL da Liga que pediu verificação — o painel da página da carta oferece
   // um link pra ela, pro usuário passar pelo desafio interativo e voltar
   let ligaBlockedUrl = null;
@@ -562,12 +614,22 @@
 
     let response;
     try {
+      networkRequests++;
       response = await browser.runtime.sendMessage({ action: 'fetchLiga', url });
     } catch (err) {
       console.error('[Emerald TCG] Erro ao buscar na Liga Pokemon:', err);
       return null;
     }
     if (!response) return null;
+
+    if (response.rateLimited) {
+      // Não bloqueia a Liga na página: o background segura as requisições
+      // durante a pausa e quem chamou espera (waitLigaCooldown) e tenta de novo
+      if (!ligaRateLimited) console.warn('[Emerald TCG] A Liga Pokemon limitou as requisições (erro 1015). Pausando e retomando sozinho.');
+      ligaRateLimited = true;
+      ligaRetryAfterMs = Math.max(response.retryAfterMs || 0, 5000);
+      return null;
+    }
 
     if (response.challenge || isCloudflareChallenge(response.text) || response.status === 403) {
       blockedDomains.add('ligapokemon.com.br');
@@ -637,7 +699,7 @@
   // lojas da mesma engine usam esse mesmo nome; em outros sites monta a
   // partir do nome do Pokémon + código da edição.
   function extractLigaCardName(text) {
-    const m = String(text || '').match(/([A-Za-zÀ-ÿ0-9'’.:\- ]{2,60}?)\s*\(\s*(#?[A-Z]{0,4}\d{1,4}[a-z]?\s*\/\s*(?:[A-Z]{0,4}\d{1,4}|∞))\s*\)/);
+    const m = String(text || '').match(/([A-Za-zÀ-ÿ0-9'’.:\- ]{2,60}?)\s*\(\s*(#?[A-Z]{0,4}\d{1,4}[A-Za-z]{0,3}\s*\/\s*(?:[A-Z]{0,4}\d{1,4}|∞))\s*\)/);
     if (!m) return null;
     return `${m[1].replace(/\s+/g, ' ').trim()} (${m[2].replace(/\s+/g, '')})`;
   }
@@ -672,15 +734,67 @@
   // respondeu mas nenhum nome abriu uma carta.
   const ligaCardDataCache = new Map();
 
-  async function fetchLigaCardData(pokemonName, cardCode, fullName) {
+  // Também persiste em browser.storage.local por PRICE_CACHE_TTL_MS, uma
+  // chave por carta (só os campos usados), com um índice pra limpar as
+  // vencidas — voltar à página da carta não refaz a busca na Liga
+  const LIGA_CARD_STORAGE_PREFIX = 'ligaCard:';
+  const LIGA_CARD_INDEX_KEY = 'ligaCardIndex';
+  const STOCK_FIELDS = ['id', 'p', 'idEdicao', 'num', 'idioma', 'qualid', 'extras', 'lj_id', 'precoFinal', 'preco', 'precoOcr'];
+
+  async function readStoredCardData(memoKey) {
+    const key = LIGA_CARD_STORAGE_PREFIX + memoKey;
+    try {
+      const entry = (await browser.storage.local.get(key))[key];
+      if (entry && typeof entry.fetchedAt === 'number' && Date.now() - entry.fetchedAt < PRICE_CACHE_TTL_MS) {
+        return entry.value;
+      }
+    } catch (err) {
+      console.error('[Emerald TCG] Erro ao ler carta do cache:', err);
+    }
+    return undefined;
+  }
+
+  function storeCardData(memoKey, data) {
+    const key = LIGA_CARD_STORAGE_PREFIX + memoKey;
+    const now = Date.now();
+    const value = data && {
+      ...data,
+      stock: data.stock.map(s => Object.fromEntries(STOCK_FIELDS.filter(f => s[f] !== undefined).map(f => [f, s[f]])))
+    };
+    browser.storage.local.get(LIGA_CARD_INDEX_KEY).then(stored => {
+      const index = stored[LIGA_CARD_INDEX_KEY] || {};
+      const expired = Object.keys(index).filter(k => now - index[k] >= PRICE_CACHE_TTL_MS);
+      expired.forEach(k => delete index[k]);
+      index[key] = now;
+      return Promise.all([
+        expired.length ? browser.storage.local.remove(expired) : null,
+        browser.storage.local.set({ [key]: { value, fetchedAt: now }, [LIGA_CARD_INDEX_KEY]: index })
+      ]);
+    }).catch(err => console.error('[Emerald TCG] Erro ao salvar carta no cache:', err));
+  }
+
+  // `onStage` (opcional) é avisado de cada etapa: 'page' (buscando a página
+  // da carta) e 'decode' (lendo os preços ocultos) — usado pela barra de
+  // progresso do painel
+  async function fetchLigaCardData(pokemonName, cardCode, fullName, onStage = () => {}) {
     const queries = ligaQueryCandidates(pokemonName, cardCode, fullName);
     const memoKey = queries[0];
     if (ligaCardDataCache.has(memoKey)) return ligaCardDataCache.get(memoKey);
 
+    const stored = await readStoredCardData(memoKey);
+    if (stored !== undefined) {
+      ligaCardDataCache.set(memoKey, stored);
+      return stored;
+    }
+
     for (const query of queries) {
       const url = `https://www.ligapokemon.com.br/?view=cards/card&card=${encodeURIComponent(query)}`;
+      onStage('page');
       const html = await fetchLigaHtml(url);
       if (html == null) return undefined;
+      // Página de erro do Cloudflare passou como "normal": não conclui nada
+      // (e não guarda no cache)
+      if (isCloudflareErrorPage(html)) return undefined;
 
       const editions = readLigaScriptVar(html, 'cards_editions');
       if (Array.isArray(editions) && editions.length > 0) {
@@ -689,18 +803,62 @@
           url,
           editions,
           stock: Array.isArray(stock) ? stock : [],
+          pricesDecoded: false,
           languages: readLigaScriptVar(html, 'dataLanguage') || [],
           qualities: readLigaScriptVar(html, 'dataQuality') || [],
           extras: readLigaScriptVar(html, 'dataExtras') || []
         };
+        onStage('decode');
+        data.pricesDecoded = await decodeLigaStockPrices(html, data.stock);
         ligaCardDataCache.set(memoKey, data);
+        storeCardData(memoKey, data);
         return data;
       }
       console.info(`[Emerald TCG] Liga: "${query}" não abriu uma carta${/<title>([^<]*)/.test(html) ? ` (página: ${html.match(/<title>([^<]*)/)[1].trim()})` : ''}`);
     }
 
     ligaCardDataCache.set(memoKey, null);
+    storeCardData(memoKey, null);
     return null;
+  }
+
+  // Preços que a Liga manda como imagem (precoCss): o background lê a imagem
+  // de números (ocr/liga-ocr.js) e o preço entra em `precoOcr` de cada
+  // anúncio. Devolve true se a leitura da página passou na conferência
+  // (preços na mesma ordem que a Liga indica em `p`).
+  async function decodeLigaStockPrices(html, stock) {
+    const hidden = stock.filter(s => s.precoFinal == null && s.precoCss);
+    if (hidden.length === 0) return true;
+
+    const css = [];
+    const styleRe = /<style[^>]*>([\s\S]*?)<\/style>/g;
+    let m;
+    while ((m = styleRe.exec(html))) {
+      if (m[1].includes('imgnum')) css.push(m[1]);
+    }
+    if (css.length === 0) return false;
+
+    let response;
+    try {
+      response = await browser.runtime.sendMessage({
+        action: 'decodeLigaPrices',
+        css: css.join('\n'),
+        stock: stock.map(s => ({ id: s.id, p: s.p, precoCss: s.precoCss, precoFinal: s.precoFinal }))
+      });
+    } catch (err) {
+      console.error('[Emerald TCG] Erro ao ler os preços ocultos da Liga:', err);
+      return false;
+    }
+    if (!response || !response.consistent) {
+      console.warn('[Emerald TCG] Liga: leitura dos preços ocultos não passou na conferência — ficam ocultos');
+      return false;
+    }
+    stock.forEach(s => {
+      const price = response.prices[s.id];
+      if (price != null) s.precoOcr = price;
+    });
+    console.info(`[Emerald TCG] Liga: ${Object.keys(response.prices).length}/${hidden.length} preços ocultos lidos`);
+    return true;
   }
 
   // Impressão exata da carta entre as edições da Liga: pelo id da edição
@@ -744,28 +902,58 @@
     return price > 0 ? price : null;
   }
 
+  // Extras de um anúncio do cards_stock: a Liga guarda o PRODUTO dos ids
+  // (primos) dos extras — Foil=2, Promo=7, então 14 = Foil + Promo; 0 = nenhum
+  function stockExtrasLabels(data, value) {
+    const n = Number(value) || 0;
+    if (n <= 1) return [];
+    return data.extras
+      .filter(e => Number(e.id) > 1 && n % Number(e.id) === 0)
+      .map(e => e.label);
+  }
+
+  // Preço de um anúncio: o texto que a Liga manda ou o lido da imagem
+  function stockPrice(s) {
+    if (s.precoFinal != null) return parseLigaPrice(s.precoFinal);
+    return s.precoOcr != null ? s.precoOcr : null;
+  }
+
+  // Id da loja aberta no cadastro da Liga (lj_id dos anúncios) — as lojas
+  // dessa engine anunciam pelo comparador da Liga, e sem isso a loja seria
+  // comparada com ela mesma
+  function ownLigaStoreId() {
+    const cartLink = document.querySelector('a[href*="view=ecom/carrinho"][href*="id="]');
+    const fromLink = cartLink && cartLink.getAttribute('href').match(/[?&]id=(\d+)/);
+    if (fromLink) return fromLink[1];
+    const scripts = [...document.querySelectorAll('script:not([src])')].map(el => el.textContent).join('\n');
+    const fromScript = scripts.match(/EcomConversion\.checkReferrer\((\d+)/) || scripts.match(/"store":(\d+)/);
+    return fromScript ? fromScript[1] : null;
+  }
+
   // Anúncios ativos na Liga com a MESMA edição, número, idioma, qualidade e
-  // extras da linha da loja. A Liga manda só parte dos preços em texto
-  // (`precoFinal`/`preco`); os outros vêm ofuscados num sprite de imagem
-  // (`precoCss`) e só entram na contagem de `hidden`.
-  function ligaListingStats(data, edition, ids, extrasKey) {
+  // extras (sem contar "Promo") da linha da loja, fora os da própria loja.
+  // `hidden` conta os que ficaram sem preço (imagem que não deu pra ler).
+  function ligaListingStats(data, edition, ids, extrasLabels, ownStoreId) {
     if (!ids.languageId || !ids.qualityId) return null;
-    const matches = data.stock.filter(s =>
+    const wantedExtras = significantExtras(extrasLabels);
+    const allMatches = data.stock.filter(s =>
       String(s.idEdicao) === String(edition.id) &&
       cardNumberKey(s.num) === cardNumberKey(edition.num) &&
       String(s.idioma) === ids.languageId &&
       String(s.qualid) === ids.qualityId &&
-      String(s.extras || 0) === extrasKey
+      significantExtras(stockExtrasLabels(data, s.extras)) === wantedExtras
     );
-    const prices = matches
-      .map(s => parseLigaPrice(s.precoFinal != null ? s.precoFinal : s.preco))
-      .filter(p => p != null);
+    const own = allMatches.filter(s => ownStoreId && String(s.lj_id) === String(ownStoreId));
+    const matches = allMatches.filter(s => !own.includes(s));
+    const prices = matches.map(stockPrice).filter(p => p != null).sort((a, b) => a - b);
     return {
       count: matches.length,
+      ownExcluded: own.length,
       hidden: matches.length - prices.length,
-      min: prices.length ? Math.min(...prices) : null,
+      prices,
+      min: prices.length ? prices[0] : null,
       avg: prices.length ? prices.reduce((sum, p) => sum + p, 0) / prices.length : null,
-      max: prices.length ? Math.max(...prices) : null,
+      max: prices.length ? prices[prices.length - 1] : null,
       priced: prices.length
     };
   }
@@ -791,7 +979,8 @@
   // opc=latestsales). Edição, qualidade e variante vão como filtro pro
   // servidor; idioma e extras exatos são conferidos aqui venda por venda —
   // venda sem idioma identificável fica de fora. Exige login na Liga.
-  async function fetchLigaSales(data, edition, ids, extrasKey, extrasLabels) {
+  // `onPause(segundos)` (opcional) é avisado se a Liga pedir pausa.
+  async function fetchLigaSales(data, edition, ids, extrasKey, extrasLabels, onPause) {
     if (!ids.qualityId) return { sales: [], reason: 'qualidade não reconhecida' };
 
     const cacheKey = `ligapokemon.com.br:sales2:${edition.idcard}_${edition.id}_${edition.num}_${ids.qualityId}_${extrasKey}_${ids.languageAcron}_${significantExtras(extrasLabels)}`;
@@ -813,11 +1002,19 @@
     const url = `https://www.ligapokemon.com.br/ajax/mp/marketplace.php?${params}`;
 
     let response;
-    try {
-      response = await browser.runtime.sendMessage({ action: 'fetchLigaJson', url, pageUrl: data.url });
-    } catch (err) {
-      console.error('[Emerald TCG] Erro ao buscar últimas vendas na Liga:', err);
-      return { sales: [], reason: 'erro' };
+    for (;;) {
+      try {
+        networkRequests++;
+        response = await browser.runtime.sendMessage({ action: 'fetchLigaJson', url, pageUrl: data.url });
+      } catch (err) {
+        console.error('[Emerald TCG] Erro ao buscar últimas vendas na Liga:', err);
+        return { sales: [], reason: 'erro' };
+      }
+      if (!response || !response.rateLimited) break;
+      // A Liga pediu pausa: espera e tenta de novo
+      ligaRateLimited = true;
+      ligaRetryAfterMs = Math.max(response.retryAfterMs || 0, 5000);
+      await waitLigaCooldown(onPause);
     }
 
     const json = response && response.json;
@@ -873,6 +1070,88 @@
     return result;
   }
 
+  // Índice da busca da Liga (?view=cards/search) por nome: cada resultado
+  // traz o nome no formato da Liga, edição, número e mín./médio/máx. (os
+  // mesmos da página da carta, mas sem separar variante). "R$ 0,00" = sem
+  // preço. Devolve undefined quando a Liga não respondeu (não vai pro cache).
+  async function fetchLigaSearchIndex(query) {
+    const cacheKey = `ligapokemon.com.br:search:${nameWords(query).join(' ')}`;
+    const cached = getCachedPrice(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const html = await fetchLigaHtml(`https://www.ligapokemon.com.br/?view=cards/search&tipo=1&card=${encodeURIComponent(query)}`);
+    if (html == null || isCloudflareErrorPage(html)) return undefined;
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const entries = [];
+    doc.querySelectorAll('.mtg-single').forEach(el => {
+      const link = el.querySelector('a[href*="view=cards/card"]');
+      if (!link) return;
+      let url;
+      try {
+        url = new URL(link.getAttribute('href'), 'https://www.ligapokemon.com.br/');
+      } catch (err) {
+        return;
+      }
+      const name = url.searchParams.get('card');
+      if (!name) return;
+      const priceOf = selector => {
+        const node = el.querySelector(selector);
+        return node ? parseLigaPrice(node.textContent) : null;
+      };
+      entries.push({
+        name,
+        ed: url.searchParams.get('ed') || '',
+        num: url.searchParams.get('num') || '',
+        min: priceOf('.price-min'),
+        avg: priceOf('.price-avg'),
+        max: priceOf('.price-max'),
+        url: url.toString()
+      });
+    });
+    // Página sem a lista de resultados não é "nenhum resultado": não guarda
+    if (entries.length === 0 && !/id="mtg-cards"|Itens encontrados/.test(html)) return undefined;
+
+    setCachedPrice(cacheKey, entries);
+    return entries;
+  }
+
+  // Referência da carta a partir da busca: mesmo nome (sem o código) e mesmo
+  // número. Várias edições com esse número: junta as faixas, como na página
+  // da carta.
+  async function ligaSearchPrice(pokemonName, cardCode, fullName) {
+    if (!cardCode) return null;
+    const baseName = String(fullName || pokemonName || '').replace(/\s*\(.*$/, '').trim();
+    if (!baseName) return null;
+
+    const entries = await fetchLigaSearchIndex(baseName);
+    if (!entries) return null;
+
+    // Compara o código inteiro (número E total da coleção): só o número
+    // misturava coleções ("5/40" com "05/12")
+    const codeKey = code => {
+      const [num, total] = String(code || '').split('/');
+      return `${cardNumberKey(num)}/${cardNumberKey(total)}`;
+    };
+    const wantedName = nameWords(baseName).join(' ');
+    const wantedCode = codeKey(cardCode);
+    const matches = entries.filter(entry => entry.avg > 0 &&
+      codeKey(extractCardCode(entry.name)) === wantedCode &&
+      nameWords(entry.name.replace(/\s*\(.*$/, '')).join(' ') === wantedName);
+    if (matches.length === 0) return null;
+
+    return {
+      price: Math.min(...matches.map(m => m.min || m.avg)),
+      fair: matches.reduce((sum, m) => sum + m.avg, 0) / matches.length,
+      max: Math.max(...matches.map(m => m.max || m.avg)),
+      matchedBy: matches.length === 1 ? 'code' : 'name',
+      editionName: matches.length === 1 ? (matches[0].ed || 'edição') : `${matches.length} edições`,
+      extrasLabel: 'referência da busca da Liga',
+      url: matches[0].url,
+      store: 'Liga Pokemon'
+    };
+  }
+
   async function fetchLigaPokemonPrice(pokemonName, cardCode, opts = {}) {
     const queries = ligaQueryCandidates(pokemonName, cardCode, opts.fullName);
     const extrasKey = opts.extrasKey || '0';
@@ -882,6 +1161,17 @@
     if (cached !== undefined) {
       return cached;
     }
+
+    // 1º: a busca da Liga por Pokémon — uma requisição traz todas as
+    // impressões com esse nome, e as outras cartas do mesmo Pokémon na
+    // página já saem do cache. Sem a impressão lá (ou sem preço), cai na
+    // página da carta como antes.
+    const fromSearch = await ligaSearchPrice(pokemonName, cardCode, opts.fullName);
+    if (fromSearch) {
+      setCachedPrice(cacheKey, fromSearch);
+      return fromSearch;
+    }
+    if (ligaRateLimited) return null;
 
     const data = await fetchLigaCardData(pokemonName, cardCode, opts.fullName);
     if (data === undefined) {
@@ -952,18 +1242,9 @@
     return result;
   }
 
-  // Nome amigável de uma loja a partir do domínio, pro tooltip do badge de preço
-  function storeDisplayName(domain) {
-    const base = domain.replace(/\.com(\.br)?$/, '');
-    return base
-      .split(/[-.]/)
-      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-  }
-
   // Lê todas as linhas de variante (edição/idioma/qualidade/extras/estoque/
   // preço) da tabela ".table-cards-row" de uma página de item da engine de
-  // e-commerce compartilhada (ECOM_STORE_DOMAINS), só com estoque e preço
+  // e-commerce compartilhada, só com estoque e preço
   // válidos. `condition` vem null nos níveis intermediários (ver
   // classifyEcomQuality); `editionId` é o id da edição no cadastro da Liga
   // (link `txt_edicao=` da primeira coluna).
@@ -1022,8 +1303,7 @@
     return rows;
   }
 
-  // Só as linhas com conservação reconhecível (NM/Damaged) — usado tanto
-  // por fetchStorePrice (filtra por idioma/conservação alvo) quanto por
+  // Só as linhas com conservação reconhecível (NM/Damaged) — usado por
   // fetchEcomItemDetails (pega a variante mais barata disponível)
   function parseEcomItemRows(doc) {
     return readEcomItemRows(doc).filter(row => row.condition);
@@ -1036,95 +1316,8 @@
     return node ? extractLigaCardName(node.textContent) : null;
   }
 
-  // Busca o menor preço numa loja de vendedor único (ECOM_STORE_DOMAINS) pra
-  // mesma carta, MESMA edição (cardCode obrigatório — sem ele não dá pra saber
-  // com segurança qual impressão do nome abrir), idioma e conservação exatos.
-  // Fluxo em duas etapas: busca por nome -> acha o link cujo texto bate com o
-  // código da edição -> abre a página do item -> lê a tabela de variantes.
-  async function fetchStorePrice(storeDomain, pokemonName, language, condition, cardCode) {
-    if (!cardCode) return null;
-
-    const cacheKey = `${storeDomain}:${normalizeText(pokemonName)}_${language}_${condition}_${cardCode}`;
-
-    const cached = getCachedPrice(cacheKey);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    if (blockedDomains.has(storeDomain)) {
-      return null;
-    }
-
-    try {
-      const searchUrl = `https://www.${storeDomain}/?view=ecom/itens&busca=${encodeURIComponent(pokemonName)}`;
-
-      const searchController = new AbortController();
-      const searchTimeout = setTimeout(() => searchController.abort(), 8000);
-      const searchResponse = await fetch(searchUrl, { signal: searchController.signal, headers: { 'Accept': 'text/html' } });
-      clearTimeout(searchTimeout);
-
-      if (!searchResponse.ok) {
-        setCachedPrice(cacheKey, null);
-        return null;
-      }
-
-      const searchHtml = await searchResponse.text();
-
-      if (isCloudflareChallenge(searchHtml)) {
-        blockedDomains.add(storeDomain);
-        console.warn(`[Emerald TCG] ${storeDomain} bloqueou o acesso automatizado. Pulando essa loja pro resto da sessão.`);
-        setCachedPrice(cacheKey, null);
-        return null;
-      }
-
-      const searchDoc = new DOMParser().parseFromString(searchHtml, 'text/html');
-      const codeDigits = cardCode.replace(/\s+/g, '');
-      const resultLink = [...searchDoc.querySelectorAll('a[href*="ecom/item&"], a[href*="ecom%2Fitem&"]')]
-        .find(a => {
-          const text = a.textContent.replace(/\s+/g, ' ').trim();
-          return text && text.includes(codeDigits) && normalizeText(text).includes(normalizeText(pokemonName));
-        });
-
-      if (!resultLink) {
-        setCachedPrice(cacheKey, null);
-        return null;
-      }
-
-      const itemUrl = new URL(resultLink.getAttribute('href'), `https://www.${storeDomain}/`).toString();
-
-      const itemController = new AbortController();
-      const itemTimeout = setTimeout(() => itemController.abort(), 8000);
-      const itemResponse = await fetch(itemUrl, { signal: itemController.signal, headers: { 'Accept': 'text/html' } });
-      clearTimeout(itemTimeout);
-
-      if (!itemResponse.ok) {
-        setCachedPrice(cacheKey, null);
-        return null;
-      }
-
-      const itemHtml = await itemResponse.text();
-      const itemDoc = new DOMParser().parseFromString(itemHtml, 'text/html');
-
-      let minPrice = Infinity;
-      parseEcomItemRows(itemDoc).forEach(row => {
-        if (row.language !== language || row.condition !== condition) return;
-        if (row.price < minPrice) minPrice = row.price;
-      });
-
-      const result = minPrice === Infinity ? null : { price: minPrice, matchedBy: 'code', store: storeDisplayName(storeDomain) };
-      setCachedPrice(cacheKey, result);
-      return result;
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        console.error(`[Emerald TCG] Erro ao buscar preço em ${storeDomain}:`, err);
-      }
-      setCachedPrice(cacheKey, null);
-      return null;
-    }
-  }
-
   // Extrai o link pra página de detalhe do próprio item dentro do card da
-  // listagem — na engine compartilhada (ECOM_STORE_DOMAINS) o preço da
+  // listagem — na engine compartilhada o preço da
   // listagem vem ofuscado (sprite CSS sem dígitos no HTML, técnica
   // anti-scraping), mas a página do item mostra o preço em texto normal.
   function extractEcomItemUrl(card) {
@@ -1152,9 +1345,11 @@
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
+      networkRequests++;
       const response = await fetch(itemUrl, { signal: controller.signal, headers: { 'Accept': 'text/html' } });
       clearTimeout(timeoutId);
 
+      if (markIfRateLimited(domain, response)) return null;
       if (!response.ok) {
         setCachedPrice(cacheKey, null);
         return null;
@@ -1192,7 +1387,7 @@
       if (err.name !== 'AbortError') {
         console.error(`[Emerald TCG] Erro ao resolver preço de item em ${domain}:`, err);
       }
-      setCachedPrice(cacheKey, null);
+      // Erro de rede/tempo esgotado: sem cache, a próxima visita tenta de novo
       return null;
     }
   }
@@ -1203,8 +1398,60 @@
   const priceEvalQueue = [];
   let priceEvalRunning = false;
 
+  // Buscas guardadas porque o filtro escondia a carta (ver processCards)
+  let deferredPriceEvals = [];
+
+  // "Apenas Faltando" ligado e a carta já está na coleção: não busca preço.
+  // ("Apenas Emerald" não precisa de nada aqui: só carta Emerald entra na fila)
+  function isPriceEvalFiltered(task) {
+    return missingOnlyMode && isOwnedCard(task.pokemonName);
+  }
+
+  function flushDeferredPriceEvals() {
+    const pending = deferredPriceEvals;
+    deferredPriceEvals = [];
+    pending.forEach(task => {
+      if (task.sealWrapper.isConnected) schedulePriceEval(task);
+    });
+  }
+
+  // Busca só o que está na tela: o card entra na fila quando chega a 400px
+  // da área visível (e as próximas conforme a rolagem). Quem abre a página e
+  // sai logo quase não gasta requisição; card escondido (filtros) nunca
+  // aparece, então nunca é buscado.
+  const pendingVisible = new Map();
+  const visibilityObserver = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          const task = pendingVisible.get(entry.target);
+          visibilityObserver.unobserve(entry.target);
+          pendingVisible.delete(entry.target);
+          if (task) queueVisiblePriceEval(task);
+        });
+      }, { rootMargin: '400px 0px' })
+    : null;
+
+  function queueVisiblePriceEval(task) {
+    if (!task.sealWrapper.isConnected) return;
+    // Carta que o filtro "Apenas Faltando" pula fica guardada e entra na
+    // fila se o filtro for desligado
+    if (isPriceEvalFiltered(task)) deferredPriceEvals.push(task);
+    else enqueuePriceEval(task);
+  }
+
+  function schedulePriceEval(task) {
+    if (!visibilityObserver) {
+      queueVisiblePriceEval(task);
+      return;
+    }
+    pendingVisible.set(task.card, task);
+    visibilityObserver.observe(task.card);
+  }
+
   function enqueuePriceEval(task) {
     priceEvalQueue.push(task);
+    miniProgress.added();
     runPriceEvalQueue();
   }
 
@@ -1214,12 +1461,208 @@
 
     while (priceEvalQueue.length > 0) {
       const task = priceEvalQueue.shift();
-      await evaluateCardPrice(task);
-      await sleep(400);
+      const requestsBefore = networkRequests;
+      // O filtro pode ter sido ligado depois de a carta entrar na fila
+      if (isPriceEvalFiltered(task)) {
+        deferredPriceEvals.push(task);
+        miniProgress.finished('skipped');
+        continue;
+      }
+      let status;
+      try {
+        status = await evaluateCardPrice(task);
+      } catch (err) {
+        console.error('[Emerald TCG] Erro ao avaliar preço:', err);
+        status = 'error';
+      }
+      // A Liga pediu pausa: a carta volta pro começo da fila, espera e segue
+      if (status === 'liga-limited') {
+        priceEvalQueue.unshift(task);
+        await waitLigaCooldown();
+        continue;
+      }
+      addListingUnknown(task.card, status);
+      miniProgress.finished(status);
+      // Intervalo só pra poupar a Liga: carta resolvida pelo cache segue direto
+      if (networkRequests !== requestsBefore) await sleep(400);
     }
 
     priceEvalRunning = false;
+    miniProgress.idle();
   }
+
+  // Mini Pikachu no canto inferior direito: conta as cartas da busca já
+  // comparadas com a Liga; quando a fila esvazia, espera 3s (pode entrar
+  // mais carta com a rolagem), mostra um resumo e some depois de 10s.
+  const MINI_SUMMARY_DELAY_MS = 3000;
+  const MINI_HIDE_DELAY_MS = 10000;
+
+  const miniProgress = (() => {
+    let root = null;
+    let text = null;
+    let bar = null;
+    let stats = null;
+    let summaryTimer = null;
+    let hideTimer = null;
+    let pauseTimer = null;
+
+    function reset() {
+      stats = { total: 0, done: 0, ok: 0, 'no-offer': 0, 'not-found': 0, blocked: 0, 'rate-limited': 0, 'liga-limited': 0, error: 0 };
+    }
+
+    function build() {
+      root = document.createElement('div');
+      root.className = 'emerald-mini';
+      root.setAttribute('role', 'status');
+      root.setAttribute('aria-live', 'polite');
+
+      const runner = document.createElement('div');
+      runner.className = 'emerald-mini-runner';
+      runner.appendChild(createPikachuSvg());
+
+      const body = document.createElement('div');
+      body.className = 'emerald-mini-body';
+      text = document.createElement('div');
+      text.className = 'emerald-mini-text';
+      const track = document.createElement('div');
+      track.className = 'emerald-mini-track';
+      bar = document.createElement('div');
+      bar.className = 'emerald-mini-fill';
+      track.appendChild(bar);
+      body.append(text, track);
+
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'emerald-mini-close';
+      close.setAttribute('aria-label', 'Fechar');
+      close.textContent = '×';
+      close.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        remove();
+      });
+
+      root.append(runner, body, close);
+      document.body.appendChild(root);
+    }
+
+    function remove() {
+      clearTimeout(summaryTimer);
+      clearTimeout(hideTimer);
+      if (root) {
+        const node = root;
+        node.classList.add('emerald-mini-out');
+        setTimeout(() => node.remove(), 250);
+      }
+      root = null;
+      // Próxima leva de cartas começa uma contagem nova
+      stats = null;
+      clearInterval(pauseTimer);
+    }
+
+    function renderProgress() {
+      if (!root) return;
+      if (root.classList.contains('emerald-mini-paused')) return; // a contagem da pausa fica na tela
+      root.classList.remove('emerald-progress-done', 'emerald-mini-summary');
+      text.textContent = '';
+      const label = document.createElement('span');
+      label.className = 'emerald-mini-label';
+      label.textContent = 'Preços da Liga';
+      const count = document.createElement('strong');
+      count.textContent = `${stats.done}/${stats.total}`;
+      text.append(label, ' ', count);
+      bar.style.width = `${stats.total ? (stats.done / stats.total) * 100 : 0}%`;
+    }
+
+    function renderSummary() {
+      if (!root) return;
+      root.classList.add('emerald-progress-done', 'emerald-mini-summary');
+      bar.style.width = '100%';
+      text.textContent = '';
+
+      const errors = stats['no-offer'] + stats['not-found'] + stats.blocked + stats['rate-limited'] + stats['liga-limited'] + stats.error;
+      const line = document.createElement('div');
+      const ok = document.createElement('span');
+      ok.className = 'emerald-mini-ok';
+      ok.textContent = `✓ ${stats.ok} com preço`;
+      line.appendChild(ok);
+      if (errors > 0) {
+        const bad = document.createElement('span');
+        bad.className = 'emerald-mini-bad';
+        bad.textContent = `✕ ${errors} sem comparação`;
+        line.append(' · ', bad);
+      }
+      text.appendChild(line);
+
+      const details = [
+        stats['not-found'] && `${stats['not-found']} sem preço na Liga`,
+        stats['no-offer'] && `${stats['no-offer']} sem preço na loja`,
+        stats.blocked && `${stats.blocked} bloqueada${stats.blocked > 1 ? 's' : ''} pela verificação da Liga`,
+        stats['rate-limited'] && `${stats['rate-limited']} sem preço: a loja limitou as requisições`,
+        stats['liga-limited'] && `${stats['liga-limited']} sem preço: a Liga limitou as requisições`,
+        stats.error && `${stats.error} com erro`
+      ].filter(Boolean);
+      if (details.length) {
+        const small = document.createElement('div');
+        small.className = 'emerald-mini-details';
+        small.textContent = details.join(' · ');
+        text.appendChild(small);
+      }
+
+      hideTimer = setTimeout(remove, MINI_HIDE_DELAY_MS);
+    }
+
+    return {
+      added() {
+        clearTimeout(summaryTimer);
+        clearTimeout(hideTimer);
+        if (!stats) reset();
+        stats.total++;
+        if (!root) build();
+        renderProgress();
+      },
+      finished(status) {
+        if (!stats) return; // fechado no ×: não reabre por causa da leva atual
+        if (status === 'skipped') {
+          stats.total = Math.max(0, stats.total - 1);
+        } else {
+          stats.done++;
+          stats[status in stats ? status : 'error']++;
+        }
+        renderProgress();
+      },
+      idle() {
+        if (!stats || !root) return;
+        clearTimeout(summaryTimer);
+        summaryTimer = setTimeout(renderSummary, MINI_SUMMARY_DELAY_MS);
+      },
+      // Pausa imposta pela Liga (erro 1015): contagem até retomar
+      paused(until) {
+        if (!root) return;
+        clearInterval(pauseTimer);
+        const tick = () => {
+          const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+          root.classList.add('emerald-mini-paused');
+          text.textContent = '';
+          const label = document.createElement('span');
+          label.className = 'emerald-mini-label';
+          label.textContent = 'Liga pediu uma pausa · retomando em ';
+          const count = document.createElement('strong');
+          count.textContent = `${left}s`;
+          text.append(label, count);
+          if (left <= 0) clearInterval(pauseTimer);
+        };
+        tick();
+        pauseTimer = setInterval(tick, 1000);
+      },
+      resumed() {
+        clearInterval(pauseTimer);
+        if (!root) return;
+        root.classList.remove('emerald-mini-paused');
+        if (stats) renderProgress();
+      }
+    };
+  })();
 
   // Busca o preço justo da carta na Liga Pokemon (mesma edição/idioma/
   // conservação da oferta, quando o código de edição está disponível) e
@@ -1229,15 +1672,64 @@
   // `itemUrl` antes de seguir; também aproveita idioma/conservação reais
   // dessa resolução, mais confiáveis que o default (a listagem dessa engine
   // não mostra idioma/qualidade em texto, só a página do item mostra).
-  async function evaluateCardPrice({ sealWrapper, offerPrice, itemUrl, pokemonName, cardCode, fullName, extrasKey }) {
-    if (!sealWrapper.isConnected) return;
+  // Preço da listagem nas lojas da engine compartilhada: os dígitos são
+  // pedaços de uma imagem (sem texto no HTML). Manda as classes de cada
+  // dígito + o CSS da página pro background ler a imagem — sem abrir a
+  // página do item (uma requisição à loja por carta estourava o limite
+  // delas, erro 1015)
+  function readEcomPriceTokens(card) {
+    const box = card.querySelector('.price .vidgmi, [class*="price"] .vidgmi');
+    if (!box) return null;
+    const tokens = [];
+    for (const el of box.children) {
+      if (/v\.png/.test(el.getAttribute('style') || '')) tokens.push(',');
+      else if (el.className && typeof el.className === 'string') tokens.push(el.className);
+    }
+    return tokens.length ? tokens : null;
+  }
+
+  function pageSpriteCss() {
+    return [...document.querySelectorAll('style')]
+      .map(el => el.textContent)
+      .filter(text => text.includes('imgnum'))
+      .join('\n');
+  }
+
+  async function decodeListingPrice(card) {
+    const tokens = readEcomPriceTokens(card);
+    if (!tokens) return null;
+    const css = pageSpriteCss();
+    if (!css) return null;
+    try {
+      const response = await browser.runtime.sendMessage({ action: 'decodeEcomPrice', css, tokens });
+      return response && response.price > 0 ? response.price : null;
+    } catch (err) {
+      console.error('[Emerald TCG] Erro ao ler o preço da listagem:', err);
+      return null;
+    }
+  }
+
+  // Devolve como terminou (pro resumo do mini Pikachu): 'ok', 'no-offer'
+  // (sem preço legível na loja), 'not-found' (Liga sem a carta/preço),
+  // 'blocked' (Liga pediu verificação) ou 'skipped' (card saiu da página)
+  async function evaluateCardPrice({ card, sealWrapper, offerPrice, itemUrl, pokemonName, cardCode, fullName, extrasKey }) {
+    if (!sealWrapper.isConnected) return 'skipped';
 
     let resolvedOffer = offerPrice;
     const ligaOpts = { fullName, extrasKey };
 
+    // 1º: lê o preço da própria listagem (sem requisição à loja)
+    if (resolvedOffer == null) {
+      resolvedOffer = await decodeListingPrice(card);
+    }
+
+    // 2º (só se a leitura falhar): abre a página do item
     if (resolvedOffer == null && itemUrl) {
       const itemDetails = await fetchEcomItemDetails(itemUrl);
-      if (!itemDetails) return;
+      if (!itemDetails) {
+        const domain = new URL(itemUrl).hostname.replace(/^www\./, '');
+        return rateLimitedDomains.has(domain) ? 'rate-limited' : 'no-offer';
+      }
       resolvedOffer = itemDetails.price;
       // A página do item traz o nome no formato da Liga, a edição exata e a
       // variante (Foil etc.) — mais confiáveis que o texto da listagem
@@ -1246,12 +1738,16 @@
       ligaOpts.extrasKey = itemDetails.extrasKey || extrasKey;
     }
 
-    if (resolvedOffer == null) return;
+    if (resolvedOffer == null) return 'no-offer';
 
     const marketResult = await fetchLigaPokemonPrice(pokemonName, cardCode, ligaOpts);
-    if (!marketResult) return;
+    if (!marketResult) {
+      if (ligaRateLimited) return 'liga-limited';
+      return blockedDomains.has('ligapokemon.com.br') ? 'blocked' : 'not-found';
+    }
 
-    applyPriceIndicator(sealWrapper, resolvedOffer, marketResult);
+    applyPriceIndicator(sealWrapper, resolvedOffer, marketResult, card);
+    return 'ok';
   }
 
   // Aplica a cor da borda do selo (verde/amarelo/vermelho, sempre visível —
@@ -1259,7 +1755,7 @@
   // quando o usuário clicar no selo (ver addEmeraldSeal). `marketResult` é a
   // referência da Liga (fetchLigaPokemonPrice): `price` mínimo, `fair` médio,
   // `max` máximo
-  function applyPriceIndicator(sealWrapper, offerPrice, marketResult) {
+  function applyPriceIndicator(sealWrapper, offerPrice, marketResult, card) {
     if (!sealWrapper.isConnected) return;
 
     const icon = sealWrapper.querySelector('.emerald-badge-icon');
@@ -1300,27 +1796,67 @@
       // depois que essa flag existir (ver addEmeraldSeal)
       priceTag.dataset.ready = 'true';
     }
+
+    if (card) addListingVerdict(card, priceClass, offerPrice, fairPrice, marketResult);
+  }
+
+  // Selo ✓ / − / ✕ à esquerda do preço do card na busca — mesma comparação
+  // da borda do selo do Rayquaza (preço da oferta x médio da Liga)
+  function addListingVerdict(card, priceClass, offerPrice, fairPrice, marketResult) {
+    if (!card.isConnected) return;
+    const priceElement = findPriceElement(card);
+    if (!priceElement) return;
+    card.querySelectorAll('.emerald-verdict-listing').forEach(n => n.remove());
+
+    const badge = createVerdictBadge(priceClass, 'emerald-verdict-listing');
+    badge.title = `${VERDICT_MEANING[priceClass]}: ${formatBRL(offerPrice)} = ${Math.round((offerPrice / fairPrice) * 100)}% do médio da Liga (${formatBRL(fairPrice)} — ${marketResult.editionName}, ${marketResult.extrasLabel})`;
+    priceElement.insertBefore(badge, priceElement.firstChild);
+  }
+
+  // Selo cinza "?" quando a carta ficou sem comparação — com o motivo no
+  // tooltip, pra falha não ficar invisível
+  function addListingUnknown(card, status) {
+    if (!card || !card.isConnected || !UNKNOWN_REASON[status]) return;
+    const priceElement = findPriceElement(card);
+    if (!priceElement) return;
+    card.querySelectorAll('.emerald-verdict-listing').forEach(n => n.remove());
+    const badge = createVerdictBadge('emerald-price-unknown', 'emerald-verdict-listing');
+    badge.title = UNKNOWN_REASON[status];
+    priceElement.insertBefore(badge, priceElement.firstChild);
   }
 
   // Processa cards no site
   function processCards() {
-    if (isCardDetailPage()) {
-      console.log('[Emerald TCG] Página de detalhes - filtros desativados');
-      return;
-    }
-
-    // Se estamos no carrinho, processa preços
+    // Carrinho antes: a página do carrinho pode parecer "página de detalhe"
+    // (poucos cards, um bloco "cart-info-...") e nunca ser processada
     if (isCartPage()) {
       processCartPrices();
       return;
     }
 
+    if (isCardDetailPage()) {
+      console.log('[Emerald TCG] Página de detalhes - filtros desativados');
+      return;
+    }
+
+    console.log('[Emerald TCG] Processando cards...');
+    const foundCount = scanCards(ALL_CARD_SELECTORS, true);
+
+    if (foundCount > 0) {
+      console.log(`[Emerald TCG] ✓ ${foundCount} cartas Emerald encontradas`);
+      browser.runtime.sendMessage({ action: 'updateBadge', count: foundCount });
+    }
+  }
+
+  // Selo + busca de preço (e, com `applyModes`, os filtros Apenas Emerald /
+  // Faltando) nos cards que casam com `selectors`. Usado na listagem e nos
+  // "Cards Associados" da página da carta. Devolve quantos cards Emerald
+  // novos recebeu selo.
+  function scanCards(selectors, applyModes) {
     let foundCount = 0;
     const processedElements = new Set();
 
-    console.log('[Emerald TCG] Processando cards...');
-
-    for (const selector of ALL_CARD_SELECTORS) {
+    for (const selector of selectors) {
       const cards = document.querySelectorAll(selector);
 
       cards.forEach(card => {
@@ -1337,6 +1873,8 @@
         if (!pokemonName) return;
 
         if (isHoennPokemon(pokemonName)) {
+          const owned = isOwnedCard(pokemonName);
+          card.dataset.emeraldName = pokemonName;
           const image = selectCardImage(card);
 
           if (image) {
@@ -1351,11 +1889,11 @@
               // página de item, resolve o preço de lá (evaluateCardPrice,
               // dentro da mesma fila serial pra manter o throttling)
               const itemUrl = offerPrice == null ? extractEcomItemUrl(card) : null;
+              const hasPriceImage = offerPrice == null && !!readEcomPriceTokens(card);
 
-              // Na própria Liga não compara com a Liga (e a aba oculta que a
-              // extensão usa pra ler a Liga também cai aqui)
-              if ((offerPrice != null || itemUrl) && currentHost !== 'ligapokemon.com.br') {
-                enqueuePriceEval({
+              if (offerPrice != null || itemUrl || hasPriceImage) {
+                const task = {
+                  card,
                   sealWrapper,
                   offerPrice,
                   itemUrl,
@@ -1363,14 +1901,14 @@
                   cardCode: extractCardCode(card.textContent),
                   fullName: extractLigaCardName(card.textContent),
                   extrasKey: ligaExtrasKey(card.textContent)
-                });
+                };
+                // Só entra na fila quando o card chega perto da tela
+                schedulePriceEval(task);
               }
             }
           }
 
-          const owned = isOwnedCard(pokemonName);
-
-          if (emeraldOnlyMode || missingOnlyMode) {
+          if (applyModes && (emeraldOnlyMode || missingOnlyMode)) {
             if (missingOnlyMode && owned) {
               card.style.display = 'none';
             } else {
@@ -1381,7 +1919,7 @@
           card.setAttribute('data-emerald', 'true');
           card.setAttribute('data-owned', owned ? 'true' : 'false');
         } else {
-          if (emeraldOnlyMode || missingOnlyMode) {
+          if (applyModes && (emeraldOnlyMode || missingOnlyMode)) {
             card.style.display = 'none';
           }
           card.setAttribute('data-emerald', 'false');
@@ -1389,36 +1927,24 @@
       });
     }
 
-    if (foundCount > 0) {
-      console.log(`[Emerald TCG] ✓ ${foundCount} cartas Emerald encontradas`);
-      browser.runtime.sendMessage({ action: 'updateBadge', count: foundCount });
-    }
+    return foundCount;
   }
 
-  // Buscas simultâneas nas lojas por item do carrinho — com 30+ lojas, tudo
-  // de uma vez eram dezenas de requisições (x2: busca + item) por carta
-  const STORE_FETCH_CONCURRENCY = 4;
-
-  // Roda `fn` sobre `items` com no máximo `limit` em andamento; devolve os
-  // resultados na mesma ordem
-  async function mapWithConcurrency(items, limit, fn) {
-    const results = new Array(items.length);
-    let next = 0;
-    async function worker() {
-      while (next < items.length) {
-        const index = next++;
-        results[index] = await fn(items[index]);
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-    return results;
-  }
-
-  // Processa preços no carrinho
+  // Carrinho. Nas lojas da engine compartilhada (.table-cart-row) cada
+  // linha ganha, no espaço entre os dados da carta e a quantidade, o mín. e
+  // o médio da Liga e o selo ✓/−/✕; em outros sites, a etiqueta genérica
+  // ao lado do nome. Só a Liga é consultada (comparar com as outras lojas
+  // eram até 2 requisições por loja por carta — e as lojas bloqueiam com o
+  // erro 1015). Carta buscada nas últimas 2h vem do cache.
   async function processCartPrices() {
+    const ecomRows = document.querySelectorAll('.table-cart-row');
+    if (ecomRows.length > 0) {
+      await processEcomCart(ecomRows);
+      return;
+    }
+
     console.log('[Emerald TCG] Processando preços do carrinho...');
 
-    // Seletores para itens do carrinho
     const cartItemSelectors = [
       '.cart-item',
       '[class*="cart-item"]',
@@ -1435,12 +1961,9 @@
     ];
 
     const processedItems = new Set();
-    const currentDomain = window.location.hostname.replace(/^www\./, '');
 
     for (const selector of cartItemSelectors) {
-      const items = document.querySelectorAll(selector);
-
-      for (const item of items) {
+      for (const item of document.querySelectorAll(selector)) {
         if (processedItems.has(item)) continue;
         if (item.querySelector('.emerald-price-compare')) continue;
 
@@ -1448,10 +1971,7 @@
         const pokemonName = extractPokemonName(item);
         if (!pokemonName || !nameNode) continue;
 
-        const details = extractCardDetails(item);
-        const cardCode = extractCardCode(item.textContent);
-        const priceElement = item.querySelector('.price, .valor, [class*="price"], [class*="valor"], .product-price, [class*="product-price"], .preco, [class*="preco"]');
-
+        const priceElement = findPriceElement(item);
         // Sem preço visível não é uma linha de carta no carrinho de verdade
         if (!priceElement) continue;
 
@@ -1460,36 +1980,211 @@
         const cartPriceMatch = priceElement.textContent.match(/R\$\s*([\d.,]+)/);
         const cartPrice = cartPriceMatch ? parseFloat(cartPriceMatch[1].replace(/\./g, '').replace(',', '.')) : null;
 
-        // Referência da Liga Pokemon (mín./médio) + menor preço entre as lojas
-        // de vendedor único suportadas (mesma edição, idioma e conservação),
-        // em paralelo — uma fonte bloqueada/fora do ar não atrapalha as outras
-        const ligaPromise = fetchLigaPokemonPrice(pokemonName, cardCode, {
+        const requestsBefore = networkRequests;
+        const liga = await fetchLigaPokemonPrice(pokemonName, extractCardCode(item.textContent), {
           fullName: extractLigaCardName(nameNode.textContent) || extractLigaCardName(item.textContent),
           extrasKey: ligaExtrasKey(item.textContent)
-        });
-        // Sem código da edição as lojas nem são consultadas (fetchStorePrice
-        // exige); com ele, no máximo STORE_FETCH_CONCURRENCY por vez
-        const storeDomains = cardCode
-          ? ECOM_STORE_DOMAINS.filter(domain => domain !== currentDomain)
-          : [];
+        }).catch(() => null);
 
-        const [liga, storeResults] = await Promise.all([
-          ligaPromise.catch(() => null),
-          mapWithConcurrency(storeDomains, STORE_FETCH_CONCURRENCY, domain =>
-            fetchStorePrice(domain, pokemonName, details.language, details.condition, cardCode).catch(() => null))
-        ]);
-        const found = storeResults.filter(Boolean);
-        const bestStore = found.length > 0
-          ? found.reduce((min, r) => (r.price < min.price ? r : min), found[0])
-          : null;
-
-        if (liga || bestStore) {
-          addPriceComparison(nameNode, liga, bestStore, cartPrice);
-        }
-
-        await sleep(400);
+        if (liga) addPriceComparison(nameNode, liga, cartPrice);
+        if (networkRequests !== requestsBefore) await sleep(400);
       }
     }
+  }
+
+  const CART_LANGUAGE_BY_LABEL = { 'japones': 'jp', 'ingles': 'en', 'portugues': 'pt', 'espanhol': 'es', 'frances': 'fr', 'alemao': 'de', 'italiano': 'it', 'coreano': 'ko' };
+
+  // Dados de uma linha do carrinho da engine compartilhada: nome no formato
+  // da Liga, edição (txt_edicao — mesmo id da Liga), idioma (bandeira),
+  // qualidade "(NM)", extras ("Foil"...) e o preço unitário exato (campo
+  // escondido txt_preco_*, "0.44")
+  function readEcomCartRow(row) {
+    const info = row.querySelector('.cart-info-produto');
+    const title = row.querySelector('.checkout-product--title');
+    const fullName = title ? extractLigaCardName(title.textContent) : null;
+    if (!info || !fullName) return null;
+
+    const priceInput = row.querySelector('input[id^="txt_preco_"]');
+    let unitPrice = priceInput ? parseFloat(priceInput.value) : NaN;
+    if (!(unitPrice > 0)) {
+      const priceText = row.querySelector('.checkout-product--price');
+      const m = priceText && priceText.textContent.match(/R\$\s*([\d.,]+)/);
+      unitPrice = m ? parseFloat(m[1].replace(/\./g, '').replace(',', '.')) : NaN;
+    }
+
+    let editionId = null;
+    let langKey = null;
+    let qualityAcron = null;
+    const extrasLabels = [];
+    row.querySelectorAll('.checkout-product--description').forEach(p => {
+      const text = p.textContent.replace(/\s+/g, ' ').trim();
+      const editionLink = p.querySelector('a[href*="txt_edicao="]');
+      if (editionLink) {
+        const m = editionLink.getAttribute('href').match(/txt_edicao=(\d+)/);
+        if (m) editionId = m[1];
+        return;
+      }
+      const quality = text.match(/\((M|NM|SP|MP|HP|D)\)\s*$/i);
+      if (quality) {
+        qualityAcron = quality[1].toUpperCase();
+        return;
+      }
+      const flag = p.querySelector('img[src*=".svg"]');
+      if (flag) {
+        const src = flag.getAttribute('src') || '';
+        const m = src.match(/bandeiras\/([a-z]+)\.svg/i) || src.match(/\/([a-z]{2,4})(?:_[A-Za-z0-9]+)?\.svg/i);
+        langKey = m ? m[1].toLowerCase() : CART_LANGUAGE_BY_LABEL[normalizeText(flag.getAttribute('alt') || text)] || null;
+        return;
+      }
+      if (text) extrasLabels.push(text);
+    });
+
+    return {
+      info,
+      fullName,
+      pokemonName: fullName.replace(/\s*\(.*$/, ''),
+      cardCode: extractCardCode(fullName),
+      unitPrice: unitPrice > 0 ? unitPrice : null,
+      editionId,
+      langKey,
+      qualityAcron,
+      extrasLabels,
+      extrasKey: ligaExtrasKey(extrasLabels.join(', '))
+    };
+  }
+
+  // Coluna "Tracker" entre Produto e Quantidade: as células copiam as
+  // classes das da própria loja (mesma fonte, padding e alinhamento). Toda
+  // linha ganha a célula, mesmo sem carta, pra tabela não desalinhar.
+  function ensureCartColumn(rows) {
+    const header = document.querySelector('.table-cart-header');
+    const firstHeaderCell = header && header.querySelector('.table-cart-header-cell');
+    // Marca a tabela pra tirar a largura fixa do título (ver CSS)
+    const table = document.querySelector('.table-cart');
+    if (table) table.classList.add('emerald-cart-table');
+    if (firstHeaderCell && !header.querySelector('.emerald-cart-col')) {
+      const col = document.createElement('div');
+      col.className = `${firstHeaderCell.className} emerald-cart-col`;
+      col.textContent = 'Tracker';
+      firstHeaderCell.insertAdjacentElement('afterend', col);
+    }
+    rows.forEach(row => {
+      if (row.querySelector(':scope > .emerald-cart-cell')) return;
+      const firstCell = row.querySelector(':scope > .table-cart-body-cell');
+      if (!firstCell) return;
+      const cell = document.createElement('div');
+      cell.className = `${firstCell.className} emerald-cart-cell`;
+      firstCell.insertAdjacentElement('afterend', cell);
+    });
+  }
+
+  async function processEcomCart(rows) {
+    const ownStoreId = ownLigaStoreId();
+    let added = 0;
+    ensureCartColumn(rows);
+
+    for (const row of rows) {
+      if (row.querySelector('.emerald-cart-price')) continue;
+      const cell = row.querySelector(':scope > .emerald-cart-cell');
+      const item = readEcomCartRow(row);
+      if (!item || !cell) continue;
+
+      const slot = document.createElement('div');
+      slot.className = 'emerald-cart-price emerald-cart-loading';
+      slot.textContent = 'buscando…';
+      cell.appendChild(slot);
+      miniProgress.added();
+      added++;
+
+      const requestsBefore = networkRequests;
+      let status;
+      for (;;) {
+        try {
+          status = await fillCartPrice(slot, item, ownStoreId);
+        } catch (err) {
+          console.error('[Emerald TCG] Erro no preço do carrinho:', err);
+          status = 'error';
+        }
+        if (status !== 'liga-limited') break;
+        // A Liga pediu pausa: espera (contagem na etiqueta) e tenta de novo
+        await waitLigaCooldown(left => { slot.textContent = `pausa da Liga · ${left}s`; });
+        slot.textContent = 'buscando…';
+      }
+      if (status !== 'ok') {
+        slot.className = 'emerald-cart-price emerald-cart-empty';
+        slot.textContent = '';
+        slot.appendChild(createVerdictBadge('emerald-price-unknown', 'emerald-verdict-listing'));
+        slot.append('sem preço');
+        slot.title = UNKNOWN_REASON[status] || UNKNOWN_REASON.error;
+      }
+      miniProgress.finished(status);
+      if (networkRequests !== requestsBefore) await sleep(400);
+    }
+
+    if (added > 0) miniProgress.idle();
+  }
+
+  // Referência pra linha: anúncios iguais na Liga (mesma edição, idioma,
+  // qualidade e extras, sem a própria loja) quando todos têm preço lido;
+  // senão, a referência geral da edição/variante
+  async function fillCartPrice(slot, item, ownStoreId) {
+    const data = await fetchLigaCardData(item.pokemonName, item.cardCode, item.fullName);
+    if (!data) {
+      if (ligaRateLimited) return 'liga-limited';
+      if (data === undefined && blockedDomains.has('ligapokemon.com.br')) return 'blocked';
+      return data === undefined ? 'error' : 'not-found';
+    }
+
+    const edition = pickLigaEdition(data.editions, item.editionId, item.cardCode);
+    if (!edition) return 'not-found';
+
+    const ids = ligaVariantIds(data, { langKey: item.langKey, qualityAcron: item.qualityAcron });
+    const listing = ligaListingStats(data, edition, ids, item.extrasLabels, ownStoreId);
+    const ref = pickLigaExtrasPrice(edition.price, item.extrasKey);
+
+    const variantDesc = [item.extrasLabels.join(', ') || 'normal', item.qualityAcron, ids.languageLabel].filter(Boolean).join(' · ');
+    let basis = null;
+    if (listing && listing.priced > 0 && listing.hidden === 0) {
+      basis = { min: listing.min, avg: listing.avg, label: `${listing.priced} anúncio${listing.priced > 1 ? 's' : ''} igua${listing.priced > 1 ? 'is' : 'l'} na Liga (${variantDesc})` };
+    } else if (ref) {
+      basis = { min: ref.min, avg: ref.avg, label: `geral da edição na Liga (${LIGA_EXTRAS_LABEL[ref.extrasKey] || 'normal'}, qualquer idioma/qualidade)` };
+    }
+    if (!basis) return 'not-found';
+
+    slot.className = 'emerald-cart-price';
+    slot.textContent = '';
+
+    const tips = [`Liga Pokemon — ${edition.name} (${edition.code}): ${basis.label}`];
+    if (item.unitPrice) {
+      const { cls } = priceClassFor(item.unitPrice, basis.avg);
+      const badge = createVerdictBadge(cls, 'emerald-verdict-listing');
+      slot.appendChild(badge);
+      tips.unshift(`${VERDICT_MEANING[cls]}: ${formatBRL(item.unitPrice)} = ${Math.round((item.unitPrice / basis.avg) * 100)}% do médio`);
+    }
+
+    const values = document.createElement('div');
+    values.className = 'emerald-cart-price-values';
+    // Mín. e méd. em linhas separadas (etiqueta estreita); o mín. é o link
+    // pra carta na Liga, já na edição e número exatos
+    const lineFor = (text, value, href) => {
+      const line = document.createElement('div');
+      const strong = document.createElement(href ? 'a' : 'strong');
+      strong.textContent = formatBRL(value);
+      if (href) {
+        strong.href = href;
+        strong.target = '_blank';
+        strong.rel = 'noopener';
+        strong.className = 'emerald-cart-price-link';
+        strong.title = 'Abrir esta carta na Liga Pokemon';
+      }
+      line.append(`${text} `, strong);
+      return line;
+    };
+    const cardUrl = `${data.url}&ed=${encodeURIComponent(edition.code)}&num=${encodeURIComponent(edition.num)}`;
+    values.append(lineFor('mín.', basis.min, cardUrl), lineFor('méd.', basis.avg));
+    slot.appendChild(values);
+    slot.title = tips.join('\n');
+    return 'ok';
   }
 
   // Classe de cor comparando um preço com o médio da Liga
@@ -1503,7 +2198,7 @@
   // Etiqueta com o mín./médio da Liga Pokemon (e a loja mais barata, se
   // alguma bater edição/idioma/conservação) ao lado do nome da carta no
   // carrinho — a cor compara o preço do carrinho com o médio da Liga
-  function addPriceComparison(nameNode, liga, bestStore, cartPrice) {
+  function addPriceComparison(nameNode, liga, cartPrice) {
     if (nameNode.querySelector('.emerald-price-compare')) return;
 
     const compareElement = document.createElement('span');
@@ -1526,15 +2221,158 @@
       }
     }
 
-    if (bestStore) {
-      parts.push(`${bestStore.store} ${formatBRL(bestStore.price)}`);
-      tips.push(`Menor preço em outra loja: ${bestStore.store} ${formatBRL(bestStore.price)} (mesma edição, idioma e conservação)`);
-    }
 
     compareElement.textContent = parts.join(' · ');
     compareElement.title = tips.join('\n');
 
     nameNode.appendChild(compareElement);
+  }
+
+  // Pikachu em pixel art (22x16, virado pra direita) pra barra de progresso:
+  // o corpo é igual nos dois quadros, só as pernas mudam (esticadas /
+  // recolhidas) — alternados pelo CSS dão a corrida
+  const PIKACHU_BODY = [
+    '...........kk.........',
+    '...........kky....kk..',
+    '............yyy...yk..',
+    '.............yyy.yy...',
+    'yyyy.........yyyyyy...',
+    '.yyy........yyyyyyyy..',
+    '..yy........yyyyywkyy.',
+    '.yyyy.......yyyyykkyy.',
+    '..byy......yyyyyyyyyk.',
+    '...bb.yyyyyyyyyyyrryy.',
+    '....yyyyyyyyyyyyyrryy.',
+    '.....yyyyyyyyyyyyyyy..',
+    '......yyyyyyyyyyyyy...',
+    '......oyyyyyyyyyyoy...'
+  ];
+  const PIKACHU_LEGS = [
+    ['.....yy..........yy...', '....yy............yy..'],
+    ['.......yy.....yy......', '........yy...yy.......']
+  ];
+  const PIKACHU_COLORS = { k: '#1c1c1c', y: '#f8d030', o: '#c98c14', r: '#e3463a', b: '#7a4a18', w: '#ffffff' };
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  // Uma <g> por quadro, com um <rect> por trecho contínuo da mesma cor
+  function pikachuFrame(rows, className) {
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('class', className);
+    rows.forEach((row, y) => {
+      for (let x = 0; x < row.length;) {
+        const color = PIKACHU_COLORS[row[x]];
+        let end = x + 1;
+        while (end < row.length && row[end] === row[x]) end++;
+        if (color) {
+          const rect = document.createElementNS(SVG_NS, 'rect');
+          rect.setAttribute('x', x);
+          rect.setAttribute('y', y);
+          rect.setAttribute('width', end - x);
+          rect.setAttribute('height', 1);
+          rect.setAttribute('fill', color);
+          g.appendChild(rect);
+        }
+        x = end;
+      }
+    });
+    return g;
+  }
+
+  function createPikachuSvg() {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 22 16');
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'emerald-pika');
+    PIKACHU_LEGS.forEach((legs, i) => {
+      svg.appendChild(pikachuFrame([...PIKACHU_BODY, ...legs], `emerald-pika-frame emerald-pika-frame-${i}`));
+    });
+    return svg;
+  }
+
+  // Barra de progresso da busca na Liga. Cada etapa ocupa uma faixa
+  // (`from`..`to`); enquanto a etapa espera a Liga, a barra avança devagar
+  // dentro da faixa, sem passar do fim dela — o progresso não mente sobre
+  // etapas que ainda não aconteceram.
+  function createLigaProgress(parent) {
+    const root = document.createElement('div');
+    root.className = 'emerald-progress';
+    root.setAttribute('role', 'progressbar');
+    root.setAttribute('aria-valuemin', '0');
+    root.setAttribute('aria-valuemax', '100');
+
+    const head = document.createElement('div');
+    head.className = 'emerald-progress-head';
+    const label = document.createElement('span');
+    label.className = 'emerald-progress-label';
+    const pct = document.createElement('span');
+    pct.className = 'emerald-progress-pct';
+    head.append(label, pct);
+
+    const lane = document.createElement('div');
+    lane.className = 'emerald-progress-lane';
+    const track = document.createElement('div');
+    track.className = 'emerald-progress-track';
+    const fill = document.createElement('div');
+    fill.className = 'emerald-progress-fill';
+    track.appendChild(fill);
+    const runner = document.createElement('div');
+    runner.className = 'emerald-progress-runner';
+    runner.appendChild(createPikachuSvg());
+    lane.append(runner, track);
+
+    root.append(head, lane);
+    parent.appendChild(root);
+
+    let shown = 0;
+    let ceiling = 0;
+
+    function render() {
+      const value = Math.min(100, shown);
+      root.style.setProperty('--p', value.toFixed(2));
+      pct.textContent = `${Math.floor(value)}%`;
+      root.setAttribute('aria-valuenow', String(Math.floor(value)));
+    }
+
+    const timer = setInterval(() => {
+      if (shown < ceiling) {
+        shown = Math.min(ceiling, shown + Math.max(0.08, (ceiling - shown) * 0.05));
+        render();
+      }
+    }, 80);
+
+    render();
+
+    return {
+      stage(text, from, to) {
+        label.textContent = text;
+        shown = Math.max(shown, from);
+        ceiling = Math.max(ceiling, to - 0.5);
+        render();
+      },
+      // Completa a barra, deixa o Pikachu chegar e some; resolve quando
+      // pode mostrar o conteúdo
+      finish() {
+        clearInterval(timer);
+        label.textContent = 'Pronto';
+        shown = 100;
+        render();
+        root.classList.add('emerald-progress-done');
+        return new Promise(resolve => {
+          setTimeout(() => {
+            root.classList.add('emerald-progress-out');
+            setTimeout(() => {
+              root.remove();
+              resolve();
+            }, 260);
+          }, 520);
+        });
+      },
+      remove() {
+        clearInterval(timer);
+        root.remove();
+      }
+    };
   }
 
   // Página de uma carta (item) nas lojas da engine compartilhada. Pra cada
@@ -1556,22 +2394,36 @@
     const anchor = document.getElementById('product--list');
 
     const rows = readEcomItemRows(document);
+    const ownStoreId = ownLigaStoreId();
     const cardCode = extractCardCode(fullName);
     const pokemonName = fullName.replace(/\s*\(.*$/, '');
 
     const panel = document.createElement('div');
     panel.className = 'emerald-item-panel';
-    panel.textContent = 'Liga Pokemon: buscando preços e últimas vendas…';
     if (anchor) {
       anchor.insertAdjacentElement('beforebegin', panel);
     } else {
       nameBlock.insertAdjacentElement('afterend', panel);
     }
 
-    const data = await fetchLigaCardData(pokemonName, cardCode, fullName);
-    panel.textContent = '';
+    // Faixas da barra: página da carta 0–55%, preços ocultos 55–70%,
+    // últimas vendas 70–100% (divididas entre as variantes)
+    const progress = createLigaProgress(panel);
+    progress.stage('Abrindo a carta na Liga', 0, 55);
+    const onPause = left => progress.stage(`A Liga pediu uma pausa · retomando em ${left}s`, 0, 0);
+    let data;
+    for (;;) {
+      data = await fetchLigaCardData(pokemonName, cardCode, fullName, stage => {
+        if (stage === 'page') progress.stage('Abrindo a carta na Liga', 3, 55);
+        else progress.stage('Lendo os preços ocultos', 55, 70);
+      });
+      // Limite da Liga: espera a pausa (contagem na barra) e tenta de novo
+      if (data !== undefined || !ligaRateLimited) break;
+      await waitLigaCooldown(onPause);
+    }
 
     if (!data) {
+      progress.remove();
       panel.classList.add('emerald-item-panel-empty');
       if (data === undefined && blockedDomains.has('ligapokemon.com.br') && ligaBlockedUrl) {
         panel.append('A Liga Pokemon pediu verificação de segurança. ');
@@ -1582,11 +2434,20 @@
         link.className = 'emerald-item-panel-action';
         link.textContent = 'Abrir a carta na Liga';
         panel.append(link, ', passe pela verificação e recarregue esta página.');
+      } else if (ligaRateLimited) {
+        panel.textContent = 'A Liga Pokemon limitou as requisições (erro 1015). Espere alguns minutos e recarregue esta página.';
+      } else if (data === undefined) {
+        panel.textContent = 'Liga Pokemon: não foi possível consultar agora. Recarregue a página pra tentar de novo.';
       } else {
         panel.textContent = 'Liga Pokemon: carta não encontrada.';
       }
       return;
     }
+
+    // O conteúdo é montado escondido e aparece quando a barra termina
+    const body = document.createElement('div');
+    body.className = 'emerald-item-panel-body emerald-item-panel-pending';
+    panel.appendChild(body);
 
     const title = document.createElement('a');
     title.className = 'emerald-item-panel-title';
@@ -1594,7 +2455,7 @@
     title.target = '_blank';
     title.rel = 'noopener';
     title.textContent = 'Liga Pokemon';
-    panel.appendChild(title);
+    body.appendChild(title);
 
     // Agrupa as linhas da tabela por variante exata
     const variants = new Map();
@@ -1606,10 +2467,11 @@
 
     const verdicts = [];
 
-    for (const { sample, rows: variantRows } of variants.values()) {
+    const variantList = [...variants.values()];
+    for (const [index, { sample, rows: variantRows }] of variantList.entries()) {
       const block = document.createElement('div');
       block.className = 'emerald-item-variant';
-      panel.appendChild(block);
+      body.appendChild(block);
 
       const edition = pickLigaEdition(data.editions, sample.editionId, cardCode);
       const ids = ligaVariantIds(data, sample);
@@ -1619,40 +2481,64 @@
         ids.languageLabel || '?'
       ].join(' · ');
 
-      const head = document.createElement('div');
+      // Nome e descrição da carta = link pra impressão exata na Liga
+      const head = document.createElement(edition ? 'a' : 'div');
       head.className = 'emerald-item-variant-head';
       head.textContent = edition ? `${variantName} — ${edition.name} (${edition.code})` : variantName;
+      if (edition) {
+        head.href = `${data.url}&ed=${encodeURIComponent(edition.code)}&num=${encodeURIComponent(edition.num)}`;
+        head.target = '_blank';
+        head.rel = 'noopener';
+        head.title = 'Abrir esta carta na Liga Pokemon';
+      }
       block.appendChild(head);
 
       if (!edition) {
-        addPanelLine(block, 'Edição exata não encontrada na Liga.', 'muted');
+        addPanelLine(block, 'Edição não encontrada na Liga.', 'muted');
         continue;
       }
 
       // Anúncios iguais agora
-      const listing = ligaListingStats(data, edition, ids, sample.extrasKey);
-      if (listing && listing.priced > 0) {
-        addPanelLine(block, `Anúncios iguais: mín. ${formatBRL(listing.min)} · méd. ${formatBRL(listing.avg)} · máx. ${formatBRL(listing.max)}` +
-          ` (${listing.priced} com preço visível${listing.hidden ? `, ${listing.hidden} com preço oculto pela Liga` : ''})`);
+      const listing = ligaListingStats(data, edition, ids, sample.extrasLabels, ownStoreId);
+      const countLabel = listing ? `${listing.count}${listing.ownExcluded ? ', sem esta loja' : ''}` : '';
+      if (listing && listing.count > 0 && listing.priced > 0) {
+        addPanelLine(block, listing.priced > 1
+          ? `Anúncios iguais (${countLabel}): mín. ${formatBRL(listing.min)} · méd. ${formatBRL(listing.avg)} · máx. ${formatBRL(listing.max)}`
+          : `Anúncios iguais (${countLabel}): ${formatBRL(listing.min)}`);
+        if (listing.priced > 1) {
+          addPanelLine(block, `Mais baratos: ${listing.prices.slice(0, 3).map(formatBRL).join(' · ')}`);
+        }
+        if (listing.hidden > 0) {
+          addPanelLine(block, `${listing.hidden} anúncio${listing.hidden > 1 ? 's' : ''} com preço ilegível, fora da conta.`, 'muted');
+        }
+
+        // Posição do preço desta loja entre os anúncios iguais
+        const ownPrice = Math.min(...variantRows.map(row => row.price));
+        const cheaper = listing.prices.filter(price => price < ownPrice).length;
+        const same = listing.prices.filter(price => price === ownPrice).length;
+        addPanelLine(block, `Esta loja: ${formatBRL(ownPrice)} — ${cheaper === 0
+          ? (same ? 'empata com o menor preço' : 'menor preço')
+          : `${cheaper} anúncio${cheaper > 1 ? 's' : ''} mais barato${cheaper > 1 ? 's' : ''}`}`);
       } else if (listing && listing.count > 0) {
-        addPanelLine(block, `Anúncios iguais: ${listing.count}, todos com preço oculto pela Liga.`, 'muted');
+        addPanelLine(block, `Anúncios iguais (${countLabel}): preços ilegíveis.`, 'muted');
       } else {
-        addPanelLine(block, 'Anúncios iguais: nenhum no momento.', 'muted');
+        addPanelLine(block, `Anúncios iguais: nenhum${listing && listing.ownExcluded ? ' além desta loja' : ''}.`, 'muted');
       }
 
-      // Referência geral da Liga (todas as línguas/conservações)
+      // Referência geral da edição: não aparece, só serve de base pro selo
+      // quando não há vendas nem anúncios iguais legíveis
       const ref = pickLigaExtrasPrice(edition.price, sample.extrasKey);
-      if (ref) {
-        const refLabel = ref.extrasKey === sample.extrasKey
-          ? (LIGA_EXTRAS_LABEL[ref.extrasKey] || 'normal')
-          : `${LIGA_EXTRAS_LABEL[ref.extrasKey] || 'normal'}, a Liga não tem ${LIGA_EXTRAS_LABEL[sample.extrasKey] || 'essa variante'}`;
-        addPanelLine(block, `Geral da edição (${refLabel}, qualquer idioma/qualidade): mín. ${formatBRL(ref.min)} · médio ${formatBRL(ref.avg)} · máx. ${formatBRL(ref.max)}`, 'muted');
-      }
 
       // Últimas vendas iguais
-      const sales = await fetchLigaSales(data, edition, ids, sample.extrasKey, sample.extrasLabels);
+      const share = 30 / variantList.length;
+      progress.stage(
+        variantList.length > 1 ? `Últimas vendas (${index + 1}/${variantList.length})` : 'Últimas vendas',
+        70 + share * index,
+        70 + share * (index + 1)
+      );
+      const sales = await fetchLigaSales(data, edition, ids, sample.extrasKey, sample.extrasLabels, onPause);
       if (sales.sales.length > 0) {
-        const line = addPanelLine(block, `Últimas ${sales.sales.length} venda${sales.sales.length > 1 ? 's' : ''} iguais (méd. ${formatBRL(sales.avg)}): `);
+        const line = addPanelLine(block, `Últimas vendas (méd. ${formatBRL(sales.avg)}): `);
         sales.sales.forEach((sale, i) => {
           const chip = document.createElement('span');
           chip.className = 'emerald-sale-chip';
@@ -1668,17 +2554,18 @@
         link.rel = 'noopener';
         link.className = 'emerald-item-panel-action';
         link.textContent = 'Liga Pokemon';
-        line.append(link, ' pra ver (a Liga só mostra vendas pra quem está logado).');
+        line.append(link, ' pra ver.');
       } else if (sales.reason === 'sem vendas') {
-        addPanelLine(block, 'Últimas vendas: nenhuma venda igual (idioma, qualidade e extras) registrada.', 'muted');
+        addPanelLine(block, 'Últimas vendas: nenhuma igual.', 'muted');
       } else {
-        addPanelLine(block, 'Últimas vendas: não foi possível carregar agora.', 'muted');
+        addPanelLine(block, 'Últimas vendas: indisponíveis agora.', 'muted');
       }
 
       // Referência pro veredito: vendas realizadas > anúncios iguais > geral
       let basis = null;
       if (sales.avg) basis = { value: sales.avg, label: `média das últimas ${sales.sales.length} vendas iguais` };
-      else if (listing && listing.avg) basis = { value: listing.avg, label: 'média dos anúncios iguais na Liga' };
+      // Anúncios só servem de base quando todos têm preço lido
+      else if (listing && listing.avg && listing.hidden === 0) basis = { value: listing.avg, label: 'média dos anúncios iguais na Liga' };
       else if (ref) basis = { value: ref.avg, label: 'médio geral da edição na Liga' };
       if (!basis) continue;
 
@@ -1690,10 +2577,17 @@
         const position = { 'emerald-price-cheap': 'abaixo', 'emerald-price-fair': 'perto', 'emerald-price-expensive': 'acima' }[cls];
         tag.title = `${formatBRL(row.price)} — ${position} da ${basis.label} (${formatBRL(basis.value)})`;
         row.priceCell.appendChild(tag);
+        // Mesmo selo da busca, à esquerda do preço
+        row.priceCell.querySelectorAll('.emerald-verdict-listing').forEach(n => n.remove());
+        const badge = createVerdictBadge(cls, 'emerald-verdict-listing');
+        badge.title = tag.title;
+        row.priceCell.insertBefore(badge, row.priceCell.firstChild);
         verdicts.push({ ratio: row.price / basis.value, row, basis, variantName });
       });
     }
 
+    await progress.finish();
+    body.classList.remove('emerald-item-panel-pending');
     addNameVerdict(verdicts);
   }
 
@@ -1714,16 +2608,9 @@
 
     const best = verdicts.reduce((a, b) => (b.ratio < a.ratio ? b : a));
     const { cls } = priceClassFor(best.row.price, best.basis.value);
-    const symbol = { 'emerald-price-cheap': '✓', 'emerald-price-fair': '−', 'emerald-price-expensive': '✕' }[cls];
-    const meaning = {
-      'emerald-price-cheap': 'compensa',
-      'emerald-price-fair': 'na média ou um pouco acima',
-      'emerald-price-expensive': 'acima da média'
-    }[cls];
+    const meaning = VERDICT_MEANING[cls];
 
-    const badge = document.createElement('span');
-    badge.className = `emerald-verdict ${cls}`;
-    badge.textContent = symbol;
+    const badge = createVerdictBadge(cls);
     badge.title = `${meaning}: ${formatBRL(best.row.price)} (${best.variantName}) = ${Math.round(best.ratio * 100)}% da ${best.basis.label} (${formatBRL(best.basis.value)})`;
     nameNode.appendChild(badge);
   }
@@ -1736,7 +2623,9 @@
 
     document.querySelectorAll(CARD_SELECTORS_JOINED).forEach(card => {
       const isEmerald = card.getAttribute('data-emerald') === 'true';
-      const isOwned = card.getAttribute('data-owned') === 'true';
+      // Recalcula a posse: a coleção pode ter sido carregada depois do card
+      const isOwned = isEmerald && isOwnedCard(card.dataset.emeraldName || '');
+      if (isEmerald) card.setAttribute('data-owned', isOwned ? 'true' : 'false');
 
       if (!isEmerald) {
         card.style.display = (emeraldOnlyMode || missingOnlyMode) ? 'none' : '';
@@ -1751,9 +2640,25 @@
     });
   }
 
+  // Posição do selo sobre a carta, em fração da altura/largura da imagem
+  const SEAL_TOP_RATIO = 0.085;
+  const SEAL_RIGHT_RATIO = 0.035;
+
   // Adiciona selo do Rayquaza
+  // Caixa onde o selo é preso: o primeiro ancestral que não é em linha. Um
+  // <a> em linha em volta da imagem (comum nas lojas) serve mal: com
+  // position:relative, ele posiciona pela linha de texto, na base da imagem
+  function sealContainerFor(imageElement) {
+    let el = imageElement.parentElement;
+    while (el && el !== document.body && getComputedStyle(el).display === 'inline') {
+      el = el.parentElement;
+    }
+    return el || imageElement.parentElement;
+  }
+
   function addEmeraldSeal(imageElement) {
-    if (imageElement.parentElement.querySelector('.emerald-seal-wrapper')) return null;
+    if (!imageElement.parentElement) return null;
+    if (sealContainerFor(imageElement).querySelector('.emerald-seal-wrapper')) return null;
 
     // Não aplica o selo (36x36) em imagens pequenas (ícones, flags de idioma
     // etc.) — evita distorcer visualmente elementos que não são foto de carta
@@ -1793,10 +2698,33 @@
       sealWrapper.title = isVisible ? sealWrapper.dataset.priceDetail : '★ Pokémon Emerald Pokédex';
     });
 
-    const imgParent = imageElement.parentElement;
+    const imgParent = sealContainerFor(imageElement);
     if (imgParent) {
-      imgParent.style.position = 'relative';
+      // Só vira referência de posição se ainda não era (não mexe em
+      // absolute/fixed/sticky da loja)
+      if (getComputedStyle(imgParent).position === 'static') imgParent.style.position = 'relative';
       imgParent.appendChild(sealWrapper);
+
+      // Posiciona pelo desenho da carta, não pela caixa em volta (que pode
+      // ser maior que a imagem): no alto à direita, logo abaixo do símbolo
+      // de energia. Refaz quando a imagem carrega ou muda de tamanho.
+      // Mede pelas caixas reais na tela: offsetLeft/clientWidth não servem
+      // quando a caixa em volta é um elemento em linha (ex.: <a>, que tem
+      // clientWidth 0 e jogava o selo pra fora da carta)
+      const place = () => {
+        if (!sealWrapper.isConnected) return;
+        const img = imageElement.getBoundingClientRect();
+        const box = imgParent.getBoundingClientRect();
+        if (!img.width || !img.height) return;
+        const style = getComputedStyle(imgParent);
+        const top = img.top - box.top - (parseFloat(style.borderTopWidth) || 0) + img.height * SEAL_TOP_RATIO;
+        const right = box.right - img.right - (parseFloat(style.borderRightWidth) || 0) + img.width * SEAL_RIGHT_RATIO;
+        sealWrapper.style.top = `${Math.max(0, Math.round(top))}px`;
+        sealWrapper.style.right = `${Math.max(0, Math.round(right))}px`;
+      };
+      place();
+      imageElement.addEventListener('load', place);
+      if (typeof ResizeObserver === 'function') new ResizeObserver(place).observe(imageElement);
     }
 
     return sealWrapper;
@@ -1820,20 +2748,29 @@
   async function init() {
     console.log('[Emerald TCG] Inicializando extensão...');
 
-    if (isCardDetailPage()) {
-      console.log('[Emerald TCG] Página de detalhes - só o painel de preço da Liga');
-      await loadPriceCacheFromStorage();
-      processItemPage();
-      return;
-    }
-
     const data = await browser.storage.local.get(['emeraldOnlyMode', 'missingOnlyMode', 'trackerCards']);
     emeraldOnlyMode = data.emeraldOnlyMode === true;
     missingOnlyMode = data.missingOnlyMode === true;
 
     await loadPriceCacheFromStorage();
 
-    if (missingOnlyMode && data.trackerCards) {
+    if (!isCartPage() && isCardDetailPage()) {
+      console.log('[Emerald TCG] Página de detalhes - painel da Liga e cards associados');
+      if (Array.isArray(data.trackerCards)) {
+        data.trackerCards.forEach(card => {
+          if (card.collected === true && card.name) ownedCards.add(normalizeText(card.name));
+        });
+      }
+      processItemPage();
+      // "Cards Associados": mesmo selo e preço da busca, sem os filtros
+      // (não esconde nada na página da carta)
+      scanCards(['.card-item'], false);
+      return;
+    }
+
+    // Carrega a coleção sempre (não só com o filtro ligado): ligar o filtro
+    // depois já encontra quem é de quem
+    if (Array.isArray(data.trackerCards)) {
       data.trackerCards.forEach(card => {
         if (card.collected === true && card.name) {
           ownedCards.add(normalizeText(card.name));
@@ -1871,6 +2808,9 @@
           loadOwnedCards();
         }
         applyFilters();
+        // Desligado: as cartas que estavam escondidas entram na fila agora
+        // (ligado: loadOwnedCards decide quando a coleção terminar de carregar)
+        if (!missingOnlyMode) flushDeferredPriceEvals();
       }
       if (message.action === 'reloadOwnedCards') {
         loadOwnedCards();

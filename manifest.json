@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Emerald TCG Finder",
-  "version": "1.5.1",
+  "version": "1.14.0",
   "description": "Identifica cartas do Pokémon Emerald em sites de TCG brasileiros e destaca com selo do Rayquaza",
   "author": "João Gazire",
   "homepage_url": "https://joaogazire.github.io/gen3-track-tcg/src/",
@@ -18,6 +18,7 @@
     "storage",
     "tabHide",
     "*://*.ligapokemon.com.br/*",
+    "*://repositorio.sbrauble.com/*",
     "*://*.freitastcg.com.br/*",
     "*://*.pokemonstore.com.br/*",
     "*://*.colecionageek.com/*",
@@ -53,10 +54,11 @@
     "*://*.ugcardshop.com.br/*",
     "*://*.xplace.com.br/*",
     "*://*.turnozerotcg.com.br/*",
-    "*://*.vilacelta.com.br/*"
+    "*://*.vilacelta.com.br/*",
+    "*://*.tcgebrinquedos.com.br/*"
   ],
   "background": {
-    "scripts": ["background.js"],
+    "scripts": ["ocr/liga-ocr.js", "background.js"],
     "persistent": true
   },
   "icons": {
@@ -67,7 +69,6 @@
     {
       "matches": [
         "*://*.freitastcg.com.br/*",
-        "*://*.ligapokemon.com.br/*",
         "*://*.funtako.com.br/*",
         "*://*.rasengan.com.br/*",
         "*://*.pokemonstore.com.br/*",
@@ -105,7 +106,8 @@
         "*://*.ugcardshop.com.br/*",
         "*://*.xplace.com.br/*",
         "*://*.turnozerotcg.com.br/*",
-        "*://*.vilacelta.com.br/*"
+        "*://*.vilacelta.com.br/*",
+        "*://*.tcgebrinquedos.com.br/*"
       ],
       "js": ["content/content.js"],
       "css": ["content/content.css"],

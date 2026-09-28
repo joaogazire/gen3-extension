@@ -56,25 +56,16 @@
 /* Ícone do selo */
 .emerald-badge-icon {
   display: block;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid #f4c95d;
-  transition: border-color 0.2s ease;
-}
-
-/* Cor da borda indica o preço da oferta em relação ao mercado (Liga Pokemon) */
-.emerald-badge-icon.emerald-price-cheap {
-  border-color: #2ab977;
-}
-
-.emerald-badge-icon.emerald-price-fair {
-  border-color: #f4c95d;
-}
-
-.emerald-badge-icon.emerald-price-expensive {
-  border-color: #e05d5d;
+  width: 36px !important;
+  height: 36px !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  background: none !important;
+  box-shadow: none !important;
+  object-fit: contain;
 }
 
 /* Animação de brilho */
@@ -137,13 +128,13 @@
 .emerald-item-panel {
   clear: both;
   margin: 8px 0 10px;
-  padding: 8px 10px;
+  padding: 10px 14px;
   background: rgba(20, 20, 20, 0.92);
   border: 1px solid rgba(244, 201, 93, 0.6);
   border-left: 3px solid #2ab977;
   border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.55;
   color: #f4f4f4;
 }
 
@@ -155,6 +146,9 @@
 .emerald-item-panel-title {
   font-weight: 700;
   color: #f4c95d;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   margin-bottom: 2px;
 }
 
@@ -204,8 +198,27 @@ a.emerald-item-panel-title:hover {
 }
 
 .emerald-item-variant-head {
+  display: block;
   font-weight: 700;
+  font-size: 15px;
   color: #fff;
+  margin-bottom: 2px;
+}
+
+a.emerald-item-variant-head {
+  color: #fff;
+  text-decoration: none;
+}
+
+a.emerald-item-variant-head::after {
+  content: ' ↗';
+  color: #f4c95d;
+  font-weight: 400;
+}
+
+a.emerald-item-variant-head:hover {
+  color: #f4c95d;
+  text-decoration: underline;
 }
 
 .emerald-item-panel-line {
@@ -222,7 +235,7 @@ a.emerald-item-panel-title:hover {
   padding: 0 6px;
   border: 1px solid rgba(244, 201, 93, 0.45);
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -231,16 +244,31 @@ a.emerald-item-panel-title:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   width: 1.35em;
   height: 1.35em;
   margin-left: 8px;
+  padding: 0;
   border-radius: 50%;
-  font-style: normal;
-  font-weight: 900;
-  line-height: 1;
+  line-height: 0;
   vertical-align: middle;
   color: #fff;
   cursor: help;
+}
+
+.emerald-verdict svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.emerald-verdict.emerald-price-unknown {
+  background: #9a9a9a;
 }
 
 .emerald-verdict.emerald-price-cheap {
@@ -254,4 +282,357 @@ a.emerald-item-panel-title:hover {
 
 .emerald-verdict.emerald-price-expensive {
   background: #e05d5d;
+}
+
+/* Na busca: à esquerda do preço do card (tamanho fixo, alinhado ao meio
+   da linha do preço) */
+.emerald-verdict.emerald-verdict-listing {
+  width: 16px;
+  height: 16px;
+  margin: 0 6px 0 0;
+  flex: none;
+  vertical-align: -3px;
+}
+
+/* Barra de progresso da busca na Liga (painel da página da carta):
+   trilho preto fino que enche de amarelo, com o Pikachu correndo na ponta */
+.emerald-progress {
+  --p: 0;
+  padding: 2px 0 4px;
+  transition: opacity 0.25s ease;
+}
+
+.emerald-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.emerald-progress-label {
+  color: #a9a9a9;
+}
+
+.emerald-progress-pct {
+  color: #f8d030;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.emerald-progress-lane {
+  position: relative;
+  height: 36px;
+}
+
+.emerald-progress-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  background: #050505;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.emerald-progress-fill {
+  height: 100%;
+  width: calc(var(--p) * 1%);
+  background: linear-gradient(90deg, #d9a91c, #f8d030 70%, #ffe680);
+  border-radius: inherit;
+  box-shadow: 0 0 8px rgba(248, 208, 48, 0.45);
+  transition: width 0.15s linear;
+}
+
+/* Pés encostando no trilho e focinho na ponta do preenchimento (no
+   começo ele espera na largada, em cima do trilho) */
+.emerald-progress-runner {
+  position: absolute;
+  bottom: 5px;
+  left: max(0px, calc(var(--p) * 1% - 40px));
+  width: 40px;
+  height: 29px;
+  transition: left 0.15s linear;
+}
+
+.emerald-pika {
+  display: block;
+  width: 40px;
+  height: 29px;
+  /* contorno claro sutil: as pontas pretas das orelhas somem no fundo escuro */
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.35));
+  animation: emerald-pika-bob 0.28s steps(1, end) infinite;
+}
+
+.emerald-pika-frame {
+  animation: emerald-pika-step 0.28s steps(1, end) infinite;
+}
+
+.emerald-pika-frame-1 {
+  animation-delay: -0.14s;
+}
+
+@keyframes emerald-pika-step {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes emerald-pika-bob {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+/* Chegou: para de correr, dá um pulinho e a barra some */
+.emerald-progress-done .emerald-progress-label {
+  color: #2ab977;
+}
+
+.emerald-progress-done .emerald-pika {
+  animation: emerald-pika-hop 0.4s ease-out 1;
+}
+
+.emerald-progress-done .emerald-pika-frame {
+  animation: none;
+}
+
+.emerald-progress-done .emerald-pika-frame-0 {
+  opacity: 0;
+}
+
+@keyframes emerald-pika-hop {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-5px); }
+  100% { transform: translateY(0); }
+}
+
+.emerald-progress-out {
+  opacity: 0;
+}
+
+.emerald-item-panel-pending {
+  display: none;
+}
+
+.emerald-item-panel-body {
+  animation: emerald-fade-in 0.25s ease-out;
+}
+
+@keyframes emerald-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emerald-pika,
+  .emerald-pika-frame,
+  .emerald-progress-done .emerald-pika,
+  .emerald-item-panel-body {
+    animation: none;
+  }
+  .emerald-pika-frame-1 {
+    opacity: 0;
+  }
+  .emerald-progress-fill,
+  .emerald-progress-runner {
+    transition: none;
+  }
+}
+
+/* Mini Pikachu no canto inferior direito: progresso e resumo da busca de
+   preços das cartas da página */
+.emerald-mini {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+  max-width: 300px;
+  padding: 8px 30px 8px 10px;
+  background: rgba(18, 18, 18, 0.94);
+  border: 1px solid rgba(244, 201, 93, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  color: #f4f4f4;
+  font: 12px/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  animation: emerald-mini-in 0.25s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.emerald-mini-out {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+@keyframes emerald-mini-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.emerald-mini-runner {
+  flex: none;
+  width: 28px;
+  height: 20px;
+}
+
+.emerald-mini .emerald-pika {
+  width: 28px;
+  height: 20px;
+}
+
+.emerald-mini-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.emerald-mini-label {
+  color: #a9a9a9;
+}
+
+.emerald-mini-text strong {
+  color: #f8d030;
+  font-variant-numeric: tabular-nums;
+}
+
+.emerald-mini-track {
+  height: 3px;
+  margin-top: 5px;
+  background: #050505;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.emerald-mini-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #d9a91c, #f8d030);
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+.emerald-mini-summary .emerald-mini-track {
+  display: none;
+}
+
+.emerald-mini-ok {
+  color: #5fd49a;
+  font-weight: 700;
+}
+
+.emerald-mini-bad {
+  color: #f08a8a;
+  font-weight: 700;
+}
+
+.emerald-mini-details {
+  margin-top: 2px;
+  color: #9a9a9a;
+  font-size: 11px;
+}
+
+.emerald-mini-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #8a8a8a;
+  font: 16px/20px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.emerald-mini-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f4f4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emerald-mini,
+  .emerald-mini-fill {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Carrinho (engine compartilhada): no espaço entre os dados da carta e a
+   quantidade — mín./médio da Liga e o selo de preço */
+/* Coluna "Tracker" (células copiam as classes da loja): fica com a sobra
+   de largura da tabela (a coluna Produto encolhe até o nome), então o card
+   centralizado nela fica no meio entre o nome e a quantidade */
+.emerald-cart-col,
+.emerald-cart-cell {
+  width: 100%;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+/* O título da carta tem largura fixa na loja (220–360px) e segurava a
+   coluna Produto larga: com a coluna Tracker, usa a largura do texto */
+.emerald-cart-table .checkout-product--title {
+  width: auto !important;
+}
+
+.emerald-cart-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 auto;
+  padding: 6px 10px;
+  text-align: left;
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid rgba(244, 201, 93, 0.45);
+  border-radius: 8px;
+  color: #f4f4f4;
+  font: 12px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  white-space: nowrap;
+  cursor: help;
+}
+
+a.emerald-cart-price-link {
+  color: #f4c95d;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a.emerald-cart-price-link:hover {
+  color: #ffe08a;
+}
+
+.emerald-cart-price-values strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.emerald-cart-loading {
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(120, 120, 120, 0.5);
+  color: #8a8a8a;
+}
+
+.emerald-cart-empty {
+  background: transparent;
+  border-color: rgba(120, 120, 120, 0.4);
+  color: #8a8a8a;
+}
+
+/* Mini Pikachu durante a pausa pedida pela Liga (erro 1015) */
+.emerald-mini-paused .emerald-mini-text strong {
+  color: #f4c95d;
+}
+
+.emerald-mini-paused .emerald-mini-fill {
+  opacity: 0.4;
+}
+
+.emerald-mini-paused .emerald-pika-frame {
+  animation-play-state: paused;
 }

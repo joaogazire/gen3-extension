@@ -28,6 +28,9 @@ const TAB_POLL_MS = 500;
 const WORKER_IDLE_CLOSE_MS = 60000;
 
 const CHALLENGE_PATTERN = /<title>\s*Just a moment|cf-turnstile|challenges\.cloudflare\.com\/turnstile|Verificando se você é humano/i;
+// Limite de requisições do Cloudflare (erro 1015) — não é desafio: não
+// adianta abrir a aba oculta, tem que esperar
+const RATE_LIMIT_PATTERN = /Error 1015|You are being rate limited|<title>[^<]*Too Many Requests/i;
 
 // Aba oculta usada pro caminho 2
 let workerTabId = null;
@@ -54,7 +57,8 @@ async function fetchLigaDirect(url) {
       headers: { 'Accept': 'text/html,application/xhtml+xml' }
     });
     const text = await response.text();
-    return { ok: response.ok, status: response.status, text, challenge: isChallenge(response.status, text) };
+    const rateLimited = response.status === 429 || RATE_LIMIT_PATTERN.test(text);
+    return { ok: response.ok && !rateLimited, status: response.status, text, rateLimited, challenge: !rateLimited && isChallenge(response.status, text) };
   } catch (err) {
     return { ok: false, status: 0, text: '', challenge: false, error: String(err) };
   } finally {
@@ -96,6 +100,7 @@ const READ_PAGE_CODE = `(() => {
     href: location.href,
     complete: document.readyState === 'complete',
     challenge: ${CHALLENGE_PATTERN.toString()}.test(html),
+    rateLimited: ${RATE_LIMIT_PATTERN.toString()}.test(html),
     html
   };
 })()`;
@@ -134,6 +139,10 @@ async function loadInWorkerTab(url) {
       continue;
     }
     if (!state || !state.href.includes(nonce)) continue;
+    if (state.rateLimited) {
+      scheduleWorkerClose();
+      return { ok: false, status: 429, text: '', challenge: false, rateLimited: true, via: 'tab' };
+    }
     if (state.challenge) {
       sawChallenge = true;
       continue;
@@ -158,6 +167,69 @@ function fetchLigaViaTab(url) {
   return run.catch(err => ({ ok: false, status: 0, text: '', challenge: false, error: String(err) }));
 }
 
+// ---------------------------------------------------------------------------
+// Ritmo das requisições à Liga — um só pra todas as abas (antes cada aba
+// tinha o seu, e duas abas abertas dobravam o volume):
+//  - intervalo mínimo entre requisições (LIGA_MIN_INTERVAL_MS), que dobra a
+//    cada limite (erro 1015) e volta devagar a cada resposta normal;
+//  - depois de um limite, uma pausa (começa em 1 min e dobra se repetir,
+//    até 10 min) em que nenhuma requisição sai: quem pedir recebe
+//    `rateLimited` + `retryAfterMs` e espera (a página mostra a contagem).
+// ---------------------------------------------------------------------------
+
+const LIGA_MIN_INTERVAL_MS = 1500;
+const LIGA_MAX_INTERVAL_MS = 6000;
+const LIGA_COOLDOWN_START_MS = 60 * 1000;
+const LIGA_COOLDOWN_MAX_MS = 10 * 60 * 1000;
+
+let ligaInterval = LIGA_MIN_INTERVAL_MS;
+let ligaCooldownMs = LIGA_COOLDOWN_START_MS;
+let ligaCooldownUntil = 0;
+let ligaLastRequestAt = 0;
+let ligaGate = Promise.resolve();
+
+function ligaCooldownLeft() {
+  return Math.max(0, ligaCooldownUntil - Date.now());
+}
+
+function ligaRateLimitedResponse(extra = {}) {
+  return { ok: false, status: 429, text: '', json: null, challenge: false, rateLimited: true, retryAfterMs: ligaCooldownLeft(), ...extra };
+}
+
+// Espera a vez na fila única (intervalo mínimo desde a última requisição)
+function ligaTurn() {
+  const turn = ligaGate.then(async () => {
+    const wait = ligaLastRequestAt + ligaInterval - Date.now();
+    if (wait > 0) await sleep(wait);
+    ligaLastRequestAt = Date.now();
+  });
+  ligaGate = turn.catch(() => {});
+  return turn;
+}
+
+function noteLigaResult(rateLimited) {
+  if (rateLimited) {
+    ligaCooldownUntil = Date.now() + ligaCooldownMs;
+    console.warn(`[Emerald TCG] Liga limitou as requisições: pausa de ${Math.round(ligaCooldownMs / 1000)}s`);
+    ligaCooldownMs = Math.min(ligaCooldownMs * 2, LIGA_COOLDOWN_MAX_MS);
+    ligaInterval = Math.min(ligaInterval * 2, LIGA_MAX_INTERVAL_MS);
+  } else {
+    ligaInterval = Math.max(LIGA_MIN_INTERVAL_MS, Math.round(ligaInterval * 0.9));
+    if (!ligaCooldownLeft()) ligaCooldownMs = LIGA_COOLDOWN_START_MS;
+  }
+}
+
+// Uma requisição à Liga respeitando pausa e intervalo; `request` devolve a
+// resposta no formato das funções abaixo (com `rateLimited` quando for o caso)
+async function ligaRequest(request) {
+  if (ligaCooldownLeft()) return ligaRateLimitedResponse();
+  await ligaTurn();
+  if (ligaCooldownLeft()) return ligaRateLimitedResponse();
+  const result = await request();
+  noteLigaResult(!!(result && result.rateLimited));
+  return result && result.rateLimited ? { ...result, retryAfterMs: ligaCooldownLeft() } : result;
+}
+
 async function fetchLigaHtml(url, senderTabId) {
   if (typeof url !== 'string' || !url.startsWith(LIGA_ORIGIN)) {
     return { ok: false, status: 0, text: '', challenge: false };
@@ -168,12 +240,12 @@ async function fetchLigaHtml(url, senderTabId) {
   const fromWorker = senderTabId != null && senderTabId === workerTabId;
 
   if (!directFetchUseless || fromWorker) {
-    const direct = await fetchLigaDirect(url);
-    if (!direct.challenge || fromWorker) return direct;
+    const direct = await ligaRequest(() => fetchLigaDirect(url));
+    if (!direct.challenge || direct.rateLimited || fromWorker) return direct;
     if (tabSolvedChallenge) directFetchUseless = true;
   }
 
-  return fetchLigaViaTab(url);
+  return ligaRequest(() => fetchLigaViaTab(url));
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +274,7 @@ async function fetchJsonInWorkerTab(url, pageUrl) {
   }
   if (!onLiga) {
     const page = await loadInWorkerTab(pageUrl || LIGA_ORIGIN);
-    if (!page.ok) return { ok: false, status: page.status, json: null, challenge: page.challenge };
+    if (!page.ok) return { ok: false, status: page.status, json: null, challenge: page.challenge, rateLimited: !!page.rateLimited };
   }
 
   clearTimeout(workerIdleTimer);
@@ -214,7 +286,8 @@ async function fetchJsonInWorkerTab(url, pageUrl) {
       .catch(err => ({ status: 0, text: '', error: String(err) }))`;
     const [result] = await browser.tabs.executeScript(workerTabId, { code });
     const json = result ? parseJson(result.text) : null;
-    return { ok: !!json, status: result ? result.status : 0, json };
+    const rateLimited = !!result && (result.status === 429 || RATE_LIMIT_PATTERN.test(result.text || ''));
+    return { ok: !!json, status: result ? result.status : 0, json, rateLimited };
   } catch (err) {
     return { ok: false, status: 0, json: null, error: String(err) };
   } finally {
@@ -227,18 +300,119 @@ async function fetchLigaJson(url, pageUrl) {
     return { ok: false, status: 0, json: null };
   }
 
-  const direct = await fetchLigaDirect(url);
+  const direct = await ligaRequest(() => fetchLigaDirect(url));
+  if (direct.rateLimited) return { ...direct, json: null };
   const directJson = direct.ok ? parseJson(direct.text) : null;
   if (directJson && !(directJson.error == 1 && NOT_LOGGED_PATTERN.test(directJson.message || ''))) {
     return { ok: true, status: direct.status, json: directJson, via: 'direct' };
   }
 
-  const run = workerQueue.then(() => fetchJsonInWorkerTab(url, pageUrl));
-  workerQueue = run.catch(() => {});
-  return run.catch(err => ({ ok: false, status: 0, json: null, error: String(err) }));
+  return ligaRequest(() => {
+    const run = workerQueue.then(() => fetchJsonInWorkerTab(url, pageUrl));
+    workerQueue = run.catch(() => {});
+    return run.catch(err => ({ ok: false, status: 0, json: null, error: String(err) }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Preços ocultos da Liga (ver ocr/liga-ocr.js). Roda aqui porque a imagem de
+// números vem de repositorio.sbrauble.com: baixada pelo background, entra no
+// canvas sem "contaminar" (dá pra ler os pixels); na página da loja não daria.
+// ---------------------------------------------------------------------------
+
+const SPRITE_URL_PATTERN = /^https:\/\/repositorio\.sbrauble\.com\//;
+let ocrTemplatesPromise = null;
+
+async function loadImageData(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status} em ${url}`);
+  const bitmap = await createImageBitmap(await response.blob());
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function ocrTemplates() {
+  if (!ocrTemplatesPromise) {
+    ocrTemplatesPromise = loadImageData(browser.runtime.getURL('ocr/liga-digits-ref.jpg'))
+      .then(EmeraldLigaOcr.buildTemplates)
+      .catch(err => {
+        ocrTemplatesPromise = null;
+        throw err;
+      });
+  }
+  return ocrTemplatesPromise;
+}
+
+// `css`: regras de estilo da página da Liga com a imagem de números;
+// `stock`: anúncios (id, p, precoCss, precoFinal). Devolve { prices: {id:
+// preço}, consistent } — ver decodeStock
+async function decodeLigaPrices(css, stock) {
+  if (typeof css !== 'string' || !Array.isArray(stock)) return { prices: {}, consistent: false };
+  try {
+    const rules = EmeraldLigaOcr.parseSpriteCss(css);
+    const templates = await ocrTemplates();
+    const sprites = {};
+    for (const ref of EmeraldLigaOcr.spriteUrls(stock, rules)) {
+      const url = ref.startsWith('//') ? `https:${ref}` : ref;
+      if (!SPRITE_URL_PATTERN.test(url)) continue;
+      sprites[ref] = await loadImageData(url);
+    }
+    return EmeraldLigaOcr.decodeStock(stock, rules, sprites, templates);
+  } catch (err) {
+    console.error('[Emerald TCG] Erro ao ler os preços ocultos da Liga:', err);
+    return { prices: {}, consistent: false, error: String(err) };
+  }
+}
+
+// Preço da listagem das lojas (imagem de números /up/ecom/imgnum): lido
+// aqui pra não precisar abrir a página de cada item (que estourava o
+// limite de requisições das lojas — erro 1015 do Cloudflare). As imagens
+// ficam em memória: a mesma página pede várias cartas da mesma imagem.
+const ecomSpriteCache = new Map();
+const ECOM_SPRITE_CACHE_MAX = 8;
+
+async function ecomSprite(ref) {
+  if (ecomSpriteCache.has(ref)) return ecomSpriteCache.get(ref);
+  const url = ref.startsWith('//') ? `https:${ref}` : ref;
+  if (!SPRITE_URL_PATTERN.test(url)) return null;
+  const promise = loadImageData(url).catch(err => {
+    ecomSpriteCache.delete(ref);
+    throw err;
+  });
+  ecomSpriteCache.set(ref, promise);
+  if (ecomSpriteCache.size > ECOM_SPRITE_CACHE_MAX) ecomSpriteCache.delete(ecomSpriteCache.keys().next().value);
+  return promise;
+}
+
+async function decodeEcomListingPrice(css, tokens) {
+  if (typeof css !== 'string' || !Array.isArray(tokens)) return { price: null };
+  try {
+    const rules = EmeraldLigaOcr.parseSpriteCss(css);
+    const sprites = {};
+    for (const ref of EmeraldLigaOcr.ecomSpriteUrls(tokens, rules)) {
+      const img = await ecomSprite(ref);
+      if (img) sprites[ref] = img;
+    }
+    return { price: EmeraldLigaOcr.decodeEcomPrice(tokens, rules, sprites) };
+  } catch (err) {
+    console.error('[Emerald TCG] Erro ao ler o preço da listagem:', err);
+    return { price: null };
+  }
 }
 
 browser.runtime.onMessage.addListener((message, sender) => {
+  if (message.action === 'decodeEcomPrice') {
+    return decodeEcomListingPrice(message.css, message.tokens);
+  }
+
+  if (message.action === 'decodeLigaPrices') {
+    return decodeLigaPrices(message.css, message.stock);
+  }
+
   if (message.action === 'fetchLiga') {
     return fetchLigaHtml(message.url, sender.tab ? sender.tab.id : null);
   }
@@ -265,6 +439,16 @@ browser.tabs.onRemoved.addListener((tabId) => {
   if (tabId === workerTabId) workerTabId = null;
 });
 
-browser.runtime.onInstalled.addListener(() => {
+// Numa atualização, zera o cache de preços: versões antigas podiam ter
+// guardado "carta não encontrada" a partir de páginas de erro da Liga
+browser.runtime.onInstalled.addListener(async (details) => {
   console.log('[Emerald TCG] Extensão instalada');
+  if (details.reason !== 'update') return;
+  try {
+    const all = await browser.storage.local.get(null);
+    const stale = Object.keys(all).filter(k => k === 'priceCache' || k === 'ligaCardIndex' || k.startsWith('ligaCard:'));
+    if (stale.length) await browser.storage.local.remove(stale);
+  } catch (err) {
+    console.error('[Emerald TCG] Erro ao limpar o cache antigo:', err);
+  }
 });
