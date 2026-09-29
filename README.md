@@ -17,6 +17,7 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 - ⚡ **Modo APENAS EMERALD**: Oculta itens que não pertencem à Pokédex do Emerald
 - 📋 **Modo APENAS FALTANDO**: Oculta cartas de Pokémon que você já possui no Emerald TCG Tracker (o Tracker guarda uma carta por Pokémon, então qualquer impressão de um Pokémon já coletado é ocultada). Com ele ligado, as cartas ocultadas também não têm o preço buscado na Liga (a busca fica só pras que faltam); ao desligar, elas entram na fila. A busca de preço já é só pras cartas Emerald, com ou sem o modo Apenas Emerald
 - 💰 **Preços no Carrinho**: Em cada carta do carrinho, o **mín. e o médio da Liga Pokemon** (mesma edição, idioma, qualidade e extras) e o selo ✓ / − / ✕ comparando com o preço unitário
+- 🏷️ **Preço da Liga no Tracker**: com a extensão instalada, o preço do Emerald TCG Tracker (grade, soma da coleção, modal e ordenação das variantes) passa a ser o **médio da Liga Pokemon** de cada impressão (mín./méd./máx. no tooltip, clique abre a carta na Liga). Usa a mesma busca por Pokémon das lojas (uma requisição por Pokémon, fila e pausas do background, cache de 24 h — e aproveita o cache das lojas). O site casa a impressão pelo número **e** total da coleção e usa o TCGplayer só quando a Liga não tem a impressão. Ver `content/tracker-prices.js`
 - 🔄 **Sincronização automática com o Tracker**: abrir o Emerald TCG Tracker no mesmo navegador sincroniza a coleção sozinho (a cada clique), com a **impressão** de cada carta; nas lojas, o selo do Rayquaza ganha o aviso **na coleção** (a mesma impressão) ou **outra versão** (você tem o Pokémon em outra impressão). O link de compartilhamento continua como alternativa
 
 ## Sites Suportados
@@ -234,6 +235,7 @@ gen3-extension/
 ├── content/
 │   ├── content.js         # Script de conteúdo (badges, filtros, preços)
 │   ├── tracker-sync.js    # Roda no Tracker: sincroniza a coleção automaticamente
+│   ├── tracker-prices.js  # Roda no Tracker: busca preços da Liga para o site
 │   └── content.css        # Estilos dos badges
 ├── popup/
 │   ├── popup.html         # HTML do popup

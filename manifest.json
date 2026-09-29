@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Emerald TCG Finder",
-  "version": "1.16.1",
+  "version": "1.17.0",
   "description": "Identifica cartas do Pokémon Emerald em sites de TCG brasileiros e destaca com selo do Rayquaza",
   "author": "João Gazire",
   "homepage_url": "https://joaogazire.github.io/gen3-track-tcg/src/",
@@ -122,7 +122,7 @@
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
-      "js": ["content/tracker-sync.js"],
+      "js": ["content/tracker-sync.js", "content/tracker-prices.js"],
       "run_at": "document_idle"
     }
   ],
