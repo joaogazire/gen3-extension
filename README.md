@@ -17,7 +17,7 @@ Extensão para Firefox que identifica cartas Pokémon TCG da **Pokédex do Emera
 - ⚡ **Modo APENAS EMERALD**: Oculta itens que não pertencem à Pokédex do Emerald
 - 📋 **Modo APENAS FALTANDO**: Oculta cartas de Pokémon que você já possui no Emerald TCG Tracker (o Tracker guarda uma carta por Pokémon, então qualquer impressão de um Pokémon já coletado é ocultada). Com ele ligado, as cartas ocultadas também não têm o preço buscado na Liga (a busca fica só pras que faltam); ao desligar, elas entram na fila. A busca de preço já é só pras cartas Emerald, com ou sem o modo Apenas Emerald
 - 💰 **Preços no Carrinho**: Em cada carta do carrinho, o **mín. e o médio da Liga Pokemon** (mesma edição, idioma, qualidade e extras) e o selo ✓ / − / ✕ comparando com o preço unitário
-- 🔄 **Sincronização do Tracker**: Carrega save do Emerald TCG Tracker via link de compartilhamento
+- 🔄 **Sincronização automática com o Tracker**: abrir o Emerald TCG Tracker no mesmo navegador sincroniza a coleção sozinho (a cada clique), com a **impressão** de cada carta; nas lojas, o selo do Rayquaza ganha o aviso **na coleção** (a mesma impressão) ou **outra versão** (você tem o Pokémon em outra impressão). O link de compartilhamento continua como alternativa
 
 ## Sites Suportados
 
@@ -65,6 +65,7 @@ recebem o selo, os filtros e as comparações.
 - [turnozerotcg.com.br](https://www.turnozerotcg.com.br)
 - [vilacelta.com.br](https://www.vilacelta.com.br)
 - [tcgebrinquedos.com.br](https://www.tcgebrinquedos.com.br)
+- [Tokyo Cards](https://www.ligamagic.com.br/?view=ecom/itens&id=634008&tcg=2) — loja virtual na LigaMagic (a extensão só age nas páginas de loja, `view=ecom/...`)
 
 ## Instalação
 
@@ -87,14 +88,26 @@ recebem o selo, os filtros e as comparações.
 
 ### Sincronização com o Tracker
 
-1. Acesse o [Emerald TCG Tracker](https://joaogazire.github.io/gen3-track-tcg/src/)
-2. Clique em **Compartilhar** no Tracker
-3. Copie o link gerado (formato: `https://joaogazire.github.io/gen3-track-tcg/src/#c=...`)
-4. Na extensão, na seção **Sincronizar com o Tracker**, cole o link no campo
-5. Clique em **🔄 Sincronizar cartas faltantes** — a extensão carrega o save, liga
-   o filtro **Apenas Faltando** e já aplica na aba atual
-6. Da próxima vez, clicar em sincronizar de novo sem colar um link reaproveita o
-   último save carregado
+**Automática (recomendado):** abra o [Emerald TCG Tracker](https://joaogazire.github.io/gen3-track-tcg/src/)
+neste navegador. A extensão lê a coleção que o Tracker salva no navegador e, pelo catálogo
+dele, a **impressão** marcada de cada Pokémon (coleção, número e total — ex.: Emerald
+#56/106). Enquanto o Tracker estiver aberto, cada carta marcada chega nas lojas em poucos
+segundos, inclusive em abas de loja já abertas. O popup mostra quando foi a última
+sincronização.
+
+Nas lojas, cada carta Emerald que você já tem mostra, embaixo do selo:
+
+- **na coleção** (verde) — é a mesma impressão do Tracker
+- **outra versão** (amarelo) — você tem esse Pokémon, mas em outra impressão (passe o
+  mouse pra ver qual)
+
+A impressão é casada pelo número **e** pelo total da coleção: só o número não basta (1 em
+5 impressões repete o número de outra coleção do mesmo Pokémon). Promos (`∞`) só casam com
+promos. Sem o total da coleção (exclusivas japonesas), o aviso diz só que você tem o Pokémon.
+
+**Por link (alternativa):** clique em **Compartilhar** no Tracker, cole o link no popup e
+clique em **🔄 Sincronizar cartas faltantes**. Esse caminho traz só quais Pokémon você tem,
+sem a impressão.
 
 ### De onde vem o preço da Liga Pokemon
 
@@ -183,9 +196,10 @@ mín./médio da Liga aparece ao lado do nome da carta.
    - **✓ verde**: preço da oferta ≤ 95% do médio da Liga
    - **− amarelo**: entre 95% e 110% do médio
    - **✕ vermelho**: ≥ 110% do médio
-4. **Clique no selo** pra revelar uma etiqueta com o médio da Liga embaixo dele (clique de
-   novo pra esconder); passe o mouse sobre o selo com a etiqueta aberta pra ver mín./médio/
-   máx., a edição e a variante usadas
+4. **Clique no selo** pra ver o **preço médio** da carta numa etiqueta embaixo dele (clique
+   de novo pra esconder). Se o preço ainda estiver na fila, a etiqueta mostra "buscando…",
+   a carta passa pra frente da fila e o médio aparece sozinho quando chegar; sem comparação
+   possível, mostra "sem preço" (motivo ao passar o mouse)
 5. Se o card não mostrar um preço reconhecível, ou a Liga não tiver a carta/preço médio
    pra essa impressão, não aparece selo no preço e o clique no Rayquaza não revela nada
 
@@ -219,6 +233,7 @@ gen3-extension/
 ├── background.js          # Busca na Liga (direta / aba oculta) e leitura dos preços ocultos
 ├── content/
 │   ├── content.js         # Script de conteúdo (badges, filtros, preços)
+│   ├── tracker-sync.js    # Roda no Tracker: sincroniza a coleção automaticamente
 │   └── content.css        # Estilos dos badges
 ├── popup/
 │   ├── popup.html         # HTML do popup

@@ -8,7 +8,7 @@ const saveStatus = document.getElementById('saveStatus');
 
 // Carrega estado salvo
 async function loadState() {
-  const data = await browser.storage.local.get(['emeraldOnlyMode', 'missingOnlyMode', 'shareUrl', 'trackerCards']);
+  const data = await browser.storage.local.get(['emeraldOnlyMode', 'missingOnlyMode', 'shareUrl', 'trackerCards', 'trackerSync']);
 
   updateEmeraldButton(data.emeraldOnlyMode === true);
   updateMissingButton(data.missingOnlyMode === true);
@@ -24,6 +24,21 @@ async function loadState() {
     const missing = total - collected;
     saveStatus.textContent = `✓ ${collected}/${total} cartas (${missing} faltando)`;
   }
+
+  // Sincronização automática (abrindo o Tracker): quando foi a última
+  const sync = data.trackerSync;
+  if (sync && sync.source === 'auto') {
+    saveStatus.textContent = `✓ ${sync.collected}/${sync.total} cartas (${sync.total - sync.collected} faltando) · sincronizado ${timeAgo(sync.at)}`;
+  }
+}
+
+function timeAgo(at) {
+  const minutes = Math.round((Date.now() - at) / 60000);
+  if (minutes < 1) return 'agora';
+  if (minutes < 60) return `há ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `há ${hours} h`;
+  return `há ${Math.round(hours / 24)} d`;
 }
 
 function updateEmeraldButton(isActive) {
@@ -354,7 +369,7 @@ async function loadSaveFromShareLink(shareUrl) {
     });
 
     // Salva no storage.local da extensão
-    await browser.storage.local.set({ trackerCards: cards });
+    await browser.storage.local.set({ trackerCards: cards, trackerSync: { at: Date.now(), source: 'link' } });
 
     const collected = cards.filter(c => c.collected).length;
     const missing = cards.length - collected;
@@ -450,3 +465,7 @@ async function updateCount() {
 
 loadState();
 updateCount();
+
+// Versão no rodapé vinda do manifest (não fica desatualizada)
+const footer = document.querySelector('.footer');
+if (footer) footer.textContent = `v${browser.runtime.getManifest().version}`;

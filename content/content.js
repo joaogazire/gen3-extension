@@ -8,6 +8,15 @@
 (function() {
   'use strict';
 
+  // Lojas virtuais hospedadas na LigaMagic (ex.: Tokyo Cards,
+  // ligamagic.com.br/?view=ecom/itens&id=634008) usam a mesma engine das
+  // outras lojas — só nessas páginas a extensão age. O resto da LigaMagic
+  // (marketplace de Magic) fica intacto.
+  if (/(^|\.)ligamagic\.com\.br$/.test(window.location.hostname) &&
+      !/[?&]view=ecom(?:%2f|\/)/i.test(window.location.href)) {
+    return;
+  }
+
   // Pokémon da Pokédex do Emerald (Hoenn - 202 Pokémon)
   const HOENN_POKEDEX = new Set([
     'treecko', 'grovyle', 'sceptile',
@@ -340,20 +349,32 @@
   // "faltando" enquanto o storage respondia)
   function loadOwnedCards() {
     browser.storage.local.get(['trackerCards'], (data) => {
-      if (data.trackerCards && Array.isArray(data.trackerCards)) {
-        const loaded = new Set();
-        data.trackerCards.forEach(card => {
-          if (card.collected === true && card.name) {
-            loaded.add(normalizeText(card.name));
-          }
-        });
-        ownedCards = loaded;
-        console.log(`[Emerald TCG] ${ownedCards.size} cartas carregadas`);
-        applyFilters();
-        // O save pode ter mudado quais cartas faltam
-        flushDeferredPriceEvals();
-      }
+      if (!Array.isArray(data.trackerCards)) return;
+      setTrackerCards(data.trackerCards);
+      applyFilters();
+      // O save pode ter mudado quais cartas faltam
+      flushDeferredPriceEvals();
+      refreshOwnedChips();
     });
+  }
+
+  // Impressão que você tem de cada Pokémon (a sincronização automática com o
+  // Tracker traz coleção, número e total; o link de compartilhamento só traz
+  // o Pokémon): nome normalizado -> { number, total, collection }
+  let ownedPrints = new Map();
+
+  function setTrackerCards(list) {
+    const names = new Set();
+    const prints = new Map();
+    list.forEach(card => {
+      if (card.collected !== true || !card.name) return;
+      const key = normalizeText(card.name);
+      names.add(key);
+      prints.set(key, { number: card.number || null, total: card.total || null, set: card.set || '', collection: card.collection || '' });
+    });
+    ownedCards = names;
+    ownedPrints = prints;
+    console.log(`[Emerald TCG] ${ownedCards.size} cartas carregadas`);
   }
 
   // Verifica se o usuário já possui a carta (independe do filtro estar
@@ -364,6 +385,89 @@
     // O Tracker guarda uma carta por Pokémon: basta uma palavra do nome da
     // carta ser um Pokémon já coletado
     return nameWords(cardName).some(word => ownedCards.has(word));
+  }
+
+  // A carta da loja é a MESMA impressão que está no Tracker? Compara número e
+  // total da coleção ("57/106"): só o número não basta (1 em 5 impressões
+  // repete o número de outra coleção do mesmo Pokémon).
+  //  - loja com "∞" (promo) só casa com impressão promo do Tracker;
+  //  - loja com total numérico exige o mesmo total;
+  //  - total do Tracker desconhecido: não afirma a impressão ('owned').
+  // null = não tem o Pokémon; 'same' = essa impressão; 'other' = outra;
+  // 'owned' = tem o Pokémon, sem saber se é essa impressão
+  function ownedPrintStatus(cardName, cardCode) {
+    const word = nameWords(cardName).find(w => ownedPrints.has(w));
+    if (!word) return null;
+    const owned = ownedPrints.get(word);
+    if (!owned.number || !cardCode) return { status: 'owned', owned };
+
+    const [num, total] = String(cardCode).split('/');
+    if (cardNumberKey(num) !== cardNumberKey(owned.number)) return { status: 'other', owned };
+
+    const ownedPromo = /p$/i.test(owned.set) || /promo/i.test(owned.collection);
+    const shopTotal = parseInt(total, 10);
+    if (!Number.isFinite(shopTotal)) {
+      return { status: ownedPromo ? 'same' : 'other', owned };
+    }
+    if (ownedPromo) return { status: 'other', owned };
+    if (!owned.total) return { status: 'owned', owned };
+    return { status: shopTotal === Number(owned.total) ? 'same' : 'other', owned };
+  }
+
+  const OWNED_CHIP = {
+    same: { text: 'na coleção', cls: 'emerald-owned-same' },
+    other: { text: 'outra versão', cls: 'emerald-owned-other' },
+    owned: { text: 'na coleção', cls: 'emerald-owned-same' }
+  };
+
+  function ownedChipTitle(result) {
+    const where = result.owned.number
+      ? `${result.owned.collection || 'coleção'} #${result.owned.number}${result.owned.total ? `/${result.owned.total}` : ''}`
+      : 'impressão não informada';
+    if (result.status === 'same') return `Você já tem esta impressão no Tracker (${where})`;
+    if (result.status === 'other') return `Você tem este Pokémon em outra impressão no Tracker: ${where}`;
+    return `Você tem este Pokémon no Tracker (${where})`;
+  }
+
+  function createOwnedChip(result) {
+    const chip = document.createElement('div');
+    const info = OWNED_CHIP[result.status];
+    chip.className = `emerald-owned-chip ${info.cls}`;
+    chip.textContent = info.text;
+    chip.title = ownedChipTitle(result);
+    return chip;
+  }
+
+  // Aviso "na coleção" / "outra versão" embaixo do selo do Rayquaza
+  function applyOwnedChip(card) {
+    const wrapper = card.querySelector('.emerald-seal-wrapper');
+    if (!wrapper) return;
+    wrapper.querySelectorAll('.emerald-owned-chip').forEach(n => n.remove());
+    const result = ownedPrintStatus(card.dataset.emeraldName || '', card.dataset.emeraldCode || null);
+    if (!result) return;
+    const icon = wrapper.querySelector('.emerald-badge-icon');
+    if (icon) icon.insertAdjacentElement('afterend', createOwnedChip(result));
+  }
+
+  // A coleção mudou (Tracker sincronizou): refaz os avisos da página
+  function refreshOwnedChips() {
+    document.querySelectorAll('[data-emerald="true"]').forEach(applyOwnedChip);
+    const nameChip = document.querySelector('.emerald-owned-name');
+    if (nameChip) nameChip.remove();
+    addNameOwnedChip();
+  }
+
+  // Página da carta: o aviso vai ao lado do nome
+  function addNameOwnedChip() {
+    if (!/[?&]view=ecom(?:%2f|\/)item\b/i.test(window.location.href)) return;
+    const nameNode = document.querySelector('.nome_en_cards i') || document.querySelector('.nome_en_cards') || document.querySelector('.nome_pt_cards');
+    const fullName = readEcomItemCardName(document);
+    if (!nameNode || !fullName) return;
+    const result = ownedPrintStatus(fullName.replace(/\s*\(.*$/, ''), extractCardCode(fullName));
+    if (!result) return;
+    const chip = createOwnedChip(result);
+    chip.classList.add('emerald-owned-name');
+    nameNode.appendChild(chip);
   }
 
   // Encontra o elemento que exibe o nome do Pokémon dentro de um card
@@ -1449,6 +1553,25 @@
     visibilityObserver.observe(task.card);
   }
 
+  // Carta clicada ainda esperando: vai pra frente da fila (ou entra nela,
+  // se ainda não tinha chegado perto da tela)
+  function prioritizePriceEval(sealWrapper) {
+    const index = priceEvalQueue.findIndex(task => task.sealWrapper === sealWrapper);
+    if (index > 0) {
+      priceEvalQueue.unshift(priceEvalQueue.splice(index, 1)[0]);
+      return;
+    }
+    for (const [card, task] of pendingVisible) {
+      if (task.sealWrapper !== sealWrapper) continue;
+      pendingVisible.delete(card);
+      if (visibilityObserver) visibilityObserver.unobserve(card);
+      queueVisiblePriceEval(task);
+      const queued = priceEvalQueue.indexOf(task);
+      if (queued > 0) priceEvalQueue.unshift(priceEvalQueue.splice(queued, 1)[0]);
+      return;
+    }
+  }
+
   function enqueuePriceEval(task) {
     priceEvalQueue.push(task);
     miniProgress.added();
@@ -1682,8 +1805,15 @@
     if (!box) return null;
     const tokens = [];
     for (const el of box.children) {
-      if (/v\.png/.test(el.getAttribute('style') || '')) tokens.push(',');
-      else if (el.className && typeof el.className === 'string') tokens.push(el.className);
+      if (/v\.png/.test(el.getAttribute('style') || '')) {
+        tokens.push(',');
+        continue;
+      }
+      const className = typeof el.className === 'string' ? el.className.trim() : '';
+      // Dígito = só classes geradas de letras ("rGoRk mVeVi kGvEk"); ícones
+      // que algumas lojas põem no bloco do preço ("icone-pre-order", da
+      // Tokyo Cards) não são dígito e ficam de fora
+      if (className && className.split(/\s+/).every(cls => /^[A-Za-z]+$/.test(cls))) tokens.push(className);
     }
     return tokens.length ? tokens : null;
   }
@@ -1792,9 +1922,13 @@
       priceTag.classList.remove('emerald-price-cheap', 'emerald-price-fair', 'emerald-price-expensive');
       priceTag.classList.add(priceClass);
       priceTag.textContent = `méd. ${formatBRL(fairPrice)}`;
-      // Marca que já tem preço pronto — o clique só revela a etiqueta
-      // depois que essa flag existir (ver addEmeraldSeal)
+      priceTag.title = '';
+      // Marca que já tem preço pronto (ver o clique em addEmeraldSeal); se a
+      // etiqueta já estava aberta em "buscando…", troca na hora
       priceTag.dataset.ready = 'true';
+      if (priceTag.classList.contains('emerald-price-tag-visible')) {
+        sealWrapper.title = sealWrapper.dataset.priceDetail;
+      }
     }
 
     if (card) addListingVerdict(card, priceClass, offerPrice, fairPrice, marketResult);
@@ -1823,6 +1957,14 @@
     const badge = createVerdictBadge('emerald-price-unknown', 'emerald-verdict-listing');
     badge.title = UNKNOWN_REASON[status];
     priceElement.insertBefore(badge, priceElement.firstChild);
+
+    // A etiqueta do selo também diz que ficou sem preço (e por quê)
+    const priceTag = card.querySelector('.emerald-seal-wrapper .emerald-price-tag');
+    if (priceTag && priceTag.dataset.ready !== 'true') {
+      priceTag.textContent = 'sem preço';
+      priceTag.title = UNKNOWN_REASON[status];
+      priceTag.dataset.ready = 'none';
+    }
   }
 
   // Processa cards no site
@@ -1875,6 +2017,7 @@
         if (isHoennPokemon(pokemonName)) {
           const owned = isOwnedCard(pokemonName);
           card.dataset.emeraldName = pokemonName;
+          card.dataset.emeraldCode = extractCardCode(card.textContent) || '';
           const image = selectCardImage(card);
 
           if (image) {
@@ -1882,6 +2025,8 @@
 
             if (sealWrapper) {
               foundCount++;
+              // "na coleção" / "outra versão" (impressão do Tracker)
+              applyOwnedChip(card);
 
               const offerPrice = extractCardPrice(card);
               // Sem preço no texto do card (engine compartilhada ofusca o
@@ -2688,14 +2833,28 @@
     // Clicar no selo alterna a etiqueta de preço justo — só faz efeito
     // depois que applyPriceIndicator marcar priceTag.dataset.ready (antes
     // disso não tem preço pra mostrar, então o clique não faz nada)
+    // Clicar no selo mostra/esconde o preço médio. Sempre responde: com o
+    // preço pronto mostra "méd. R$ X"; ainda na fila mostra "buscando…" e
+    // passa essa carta pra frente da fila (a etiqueta troca sozinha quando o
+    // preço chegar); sem comparação mostra "sem preço" (motivo no tooltip).
     sealWrapper.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      if (priceTag.dataset.ready !== 'true') return;
-
       const isVisible = priceTag.classList.toggle('emerald-price-tag-visible');
-      sealWrapper.title = isVisible ? sealWrapper.dataset.priceDetail : '★ Pokémon Emerald Pokédex';
+      if (!isVisible) {
+        sealWrapper.title = '★ Pokémon Emerald Pokédex';
+        return;
+      }
+      if (priceTag.dataset.ready === 'true') {
+        sealWrapper.title = sealWrapper.dataset.priceDetail;
+      } else if (priceTag.dataset.ready === 'none') {
+        sealWrapper.title = priceTag.title;
+      } else {
+        priceTag.textContent = 'buscando…';
+        sealWrapper.title = 'Buscando o preço na Liga Pokemon…';
+        prioritizePriceEval(sealWrapper);
+      }
     });
 
     const imgParent = sealContainerFor(imageElement);
@@ -2754,14 +2913,17 @@
 
     await loadPriceCacheFromStorage();
 
+    // O Tracker sincronizou (aberto em outra aba): atualiza filtros e avisos
+    // "na coleção" desta página na hora
+    browser.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.trackerCards) loadOwnedCards();
+    });
+
     if (!isCartPage() && isCardDetailPage()) {
       console.log('[Emerald TCG] Página de detalhes - painel da Liga e cards associados');
-      if (Array.isArray(data.trackerCards)) {
-        data.trackerCards.forEach(card => {
-          if (card.collected === true && card.name) ownedCards.add(normalizeText(card.name));
-        });
-      }
+      if (Array.isArray(data.trackerCards)) setTrackerCards(data.trackerCards);
       processItemPage();
+      addNameOwnedChip();
       // "Cards Associados": mesmo selo e preço da busca, sem os filtros
       // (não esconde nada na página da carta)
       scanCards(['.card-item'], false);
@@ -2770,14 +2932,7 @@
 
     // Carrega a coleção sempre (não só com o filtro ligado): ligar o filtro
     // depois já encontra quem é de quem
-    if (Array.isArray(data.trackerCards)) {
-      data.trackerCards.forEach(card => {
-        if (card.collected === true && card.name) {
-          ownedCards.add(normalizeText(card.name));
-        }
-      });
-      console.log(`[Emerald TCG] ${ownedCards.size} cartas carregadas`);
-    }
+    if (Array.isArray(data.trackerCards)) setTrackerCards(data.trackerCards);
 
     processCards();
 

@@ -28,13 +28,12 @@
   display: none;
   background: rgba(20, 20, 20, 0.85);
   color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 3px 6px;
-  border-radius: 4px;
+  font: 700 11px/1.2 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  padding: 3px 7px;
+  border-radius: 5px;
   white-space: nowrap;
   border: 1px solid rgba(244, 201, 93, 0.6);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 .emerald-price-tag.emerald-price-tag-visible {
@@ -635,4 +634,35 @@ a.emerald-cart-price-link:hover {
 
 .emerald-mini-paused .emerald-pika-frame {
   animation-play-state: paused;
+}
+
+/* "na coleção" / "outra versão" (impressão marcada no Tracker): embaixo do
+   selo do Rayquaza na busca e ao lado do nome na página da carta */
+.emerald-owned-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font: 700 10px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: help;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.emerald-owned-same {
+  background: #2ab977;
+  color: #fff;
+}
+
+.emerald-owned-other {
+  background: #e8b923;
+  color: #1a1a1a;
+}
+
+.emerald-owned-name {
+  margin-left: 8px;
+  font-size: 12px;
+  font-style: normal;
+  text-transform: none;
+  vertical-align: middle;
 }
