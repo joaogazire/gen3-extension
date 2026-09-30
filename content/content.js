@@ -1174,21 +1174,10 @@
     return result;
   }
 
-  // Índice da busca da Liga (?view=cards/search) por nome: cada resultado
-  // traz o nome no formato da Liga, edição, número e mín./médio/máx. (os
-  // mesmos da página da carta, mas sem separar variante). "R$ 0,00" = sem
-  // preço. Devolve undefined quando a Liga não respondeu (não vai pro cache).
-  async function fetchLigaSearchIndex(query) {
-    const cacheKey = `ligapokemon.com.br:search:${nameWords(query).join(' ')}`;
-    const cached = getCachedPrice(cacheKey);
-    if (cached !== undefined) return cached;
-
-    const html = await fetchLigaHtml(`https://www.ligapokemon.com.br/?view=cards/search&tipo=1&card=${encodeURIComponent(query)}`);
-    if (html == null || isCloudflareErrorPage(html)) return undefined;
-
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Resultados (.mtg-single) de um pedaço de HTML da busca da Liga
+  function parseSearchEntries(root) {
     const entries = [];
-    doc.querySelectorAll('.mtg-single').forEach(el => {
+    root.querySelectorAll('.mtg-single').forEach(el => {
       const link = el.querySelector('a[href*="view=cards/card"]');
       if (!link) return;
       let url;
@@ -1213,8 +1202,82 @@
         url: url.toString()
       });
     });
+    return entries;
+  }
+
+  // A busca mostra 40 itens; o resto vem do botão "Exibir mais", que faz
+  // POST /ajax/cards/main.php (opc=nextPage) e recebe o HTML dos próximos 40.
+  // Os parâmetros vêm das chamadas mcards.set*() da própria página. Devolve
+  // false se a Liga não respondeu (a lista ficaria incompleta).
+  const SEARCH_PAGE_SIZE = 40;
+  const SEARCH_MAX_EXTRA_PAGES = 15;
+
+  async function appendSearchPages(html, entries) {
+    const next = html.match(/mcards\.nextPage\((\d+)\)/);
+    if (!next || entries.length < SEARCH_PAGE_SIZE) return true;
+    const param = (name, fallback) => {
+      const m = html.match(new RegExp(`mcards\\.${name}\\((?:"([^"]*)"|(\\d+))\\)`));
+      return m ? (m[1] != null ? m[1] : m[2]) : fallback;
+    };
+    const form = {
+      opc: 'nextPage',
+      totalReg: param('setTotalReg', String(entries.length + 1)),
+      search: param('setSearch', ''),
+      orderBy: '',
+      tipo: param('setTipo', '1'),
+      fav: 'false',
+      iTCG: '2',
+      idPokemon: '0'
+    };
+    let key = next[1];
+    for (let page = 2; page < 2 + SEARCH_MAX_EXTRA_PAGES; page++) {
+      let response;
+      for (;;) {
+        try {
+          networkRequests++;
+          response = await browser.runtime.sendMessage({
+            action: 'fetchLigaJson',
+            url: 'https://www.ligapokemon.com.br/ajax/cards/main.php',
+            form: { ...form, page: String(page), key: String(key) }
+          });
+        } catch (err) {
+          console.error('[Emerald TCG] Erro ao buscar mais resultados na Liga:', err);
+          return false;
+        }
+        if (!response || !response.rateLimited) break;
+        ligaRateLimited = true;
+        ligaRetryAfterMs = Math.max(response.retryAfterMs || 0, 5000);
+        await waitLigaCooldown();
+      }
+      const json = response && response.json;
+      if (!json || json.error) return false;
+      const doc = new DOMParser().parseFromString(`<div>${json.html || ''}</div>`, 'text/html');
+      entries.push(...parseSearchEntries(doc));
+      if (String(json.nextPage) !== '1' || json.key == null) return true;
+      key = json.key;
+    }
+    return true;
+  }
+
+  // Índice da busca da Liga (?view=cards/search) por nome: cada resultado
+  // traz o nome no formato da Liga, edição, número e mín./médio/máx. (os
+  // mesmos da página da carta, mas sem separar variante). "R$ 0,00" = sem
+  // preço. Devolve undefined quando a Liga não respondeu (não vai pro cache).
+  async function fetchLigaSearchIndex(query) {
+    const cacheKey = `ligapokemon.com.br:search:${nameWords(query).join(' ')}`;
+    const cached = getCachedPrice(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const html = await fetchLigaHtml(`https://www.ligapokemon.com.br/?view=cards/search&tipo=1&card=${encodeURIComponent(query)}`);
+    if (html == null || isCloudflareErrorPage(html)) return undefined;
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const entries = parseSearchEntries(doc);
     // Página sem a lista de resultados não é "nenhum resultado": não guarda
     if (entries.length === 0 && !/id="mtg-cards"|Itens encontrados/.test(html)) return undefined;
+    // Lista incompleta (Liga não respondeu o "Exibir mais") também não vai
+    // pro cache: casaria "sem preço" pra impressões que só estão adiante
+    if (!(await appendSearchPages(html, entries))) return entries;
 
     setCachedPrice(cacheKey, entries);
     return entries;

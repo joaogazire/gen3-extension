@@ -47,14 +47,22 @@ function isChallenge(status, text) {
   return status === 403 || status === 503 || CHALLENGE_PATTERN.test(text || '');
 }
 
-async function fetchLigaDirect(url) {
+// `form`: corpo de um POST de formulário (ex.: "Exibir mais" da busca); sem
+// ele, GET
+async function fetchLigaDirect(url, form = null) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
       credentials: 'include',
-      headers: { 'Accept': 'text/html,application/xhtml+xml' }
+      ...(form
+        ? {
+          method: 'POST',
+          body: new URLSearchParams(form).toString(),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+        }
+        : { headers: { 'Accept': 'text/html,application/xhtml+xml' } })
     });
     const text = await response.text();
     const rateLimited = response.status === 429 || RATE_LIMIT_PATTERN.test(text);
@@ -262,7 +270,7 @@ function parseJson(text) {
   try { return JSON.parse(text); } catch (err) { return null; }
 }
 
-async function fetchJsonInWorkerTab(url, pageUrl) {
+async function fetchJsonInWorkerTab(url, pageUrl, form = null) {
   // Garante uma página da Liga carregada na aba oculta (qualquer uma serve
   // de origem; usa a da carta, que provavelmente já está lá)
   let onLiga = false;
@@ -281,7 +289,10 @@ async function fetchJsonInWorkerTab(url, pageUrl) {
   try {
     // content.fetch (Firefox): requisição feita como a própria página da
     // Liga — mesma origem e cookies de sessão do usuário
-    const code = `(typeof content !== 'undefined' && content.fetch ? content.fetch.bind(content) : fetch)(${JSON.stringify(url)}, { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
+    const init = form
+      ? { method: 'POST', credentials: 'include', body: new URLSearchParams(form).toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' } }
+      : { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } };
+    const code = `(typeof content !== 'undefined' && content.fetch ? content.fetch.bind(content) : fetch)(${JSON.stringify(url)}, ${JSON.stringify(init)})
       .then(r => r.text().then(text => ({ status: r.status, text })))
       .catch(err => ({ status: 0, text: '', error: String(err) }))`;
     const [result] = await browser.tabs.executeScript(workerTabId, { code });
@@ -295,12 +306,13 @@ async function fetchJsonInWorkerTab(url, pageUrl) {
   }
 }
 
-async function fetchLigaJson(url, pageUrl) {
+async function fetchLigaJson(url, pageUrl, form = null) {
   if (typeof url !== 'string' || !url.startsWith(LIGA_ORIGIN)) {
     return { ok: false, status: 0, json: null };
   }
+  if (form != null && (typeof form !== 'object' || Array.isArray(form))) form = null;
 
-  const direct = await ligaRequest(() => fetchLigaDirect(url));
+  const direct = await ligaRequest(() => fetchLigaDirect(url, form));
   if (direct.rateLimited) return { ...direct, json: null };
   const directJson = direct.ok ? parseJson(direct.text) : null;
   if (directJson && !(directJson.error == 1 && NOT_LOGGED_PATTERN.test(directJson.message || ''))) {
@@ -308,7 +320,7 @@ async function fetchLigaJson(url, pageUrl) {
   }
 
   return ligaRequest(() => {
-    const run = workerQueue.then(() => fetchJsonInWorkerTab(url, pageUrl));
+    const run = workerQueue.then(() => fetchJsonInWorkerTab(url, pageUrl, form));
     workerQueue = run.catch(() => {});
     return run.catch(err => ({ ok: false, status: 0, json: null, error: String(err) }));
   });
@@ -420,7 +432,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
   if (message.action === 'fetchLigaJson') {
     // Pedidos da própria aba oculta não entram aqui (evita recursão)
     if (sender.tab && sender.tab.id === workerTabId) return Promise.resolve({ ok: false, status: 0, json: null });
-    return fetchLigaJson(message.url, message.pageUrl);
+    return fetchLigaJson(message.url, message.pageUrl, message.form || null);
   }
 
   if (message.action === 'updateBadge') {
@@ -446,7 +458,7 @@ browser.runtime.onInstalled.addListener(async (details) => {
   if (details.reason !== 'update') return;
   try {
     const all = await browser.storage.local.get(null);
-    const stale = Object.keys(all).filter(k => k === 'priceCache' || k === 'ligaCardIndex' || k.startsWith('ligaCard:'));
+    const stale = Object.keys(all).filter(k => k === 'priceCache' || k === 'trackerLigaSearch' || k === 'ligaCardIndex' || k.startsWith('ligaCard:'));
     if (stale.length) await browser.storage.local.remove(stale);
   } catch (err) {
     console.error('[Emerald TCG] Erro ao limpar o cache antigo:', err);

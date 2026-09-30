@@ -208,7 +208,9 @@ mín./médio da Liga aparece ao lado do nome da carta.
 
 - **Uma busca por Pokémon, não por carta**: a referência do selo vem da busca da Liga
   (`?view=cards/search&card=<nome>`), que traz mín./médio/máx. de todas as impressões
-  daquele nome numa requisição só — as outras cartas do mesmo Pokémon na página saem do
+  daquele nome. A página mostra 40 resultados; o resto vem do "Exibir mais"
+  (`POST /ajax/cards/main.php`, 40 por vez), que a extensão segue até o fim — antes
+  impressões depois da 40ª ficavam "sem preço" — as outras cartas do mesmo Pokémon na página saem do
   cache. A impressão é casada pelo nome e pelo código inteiro (número e total da
   coleção). Só quando a impressão não aparece lá (ou aparece sem preço, "R$ 0,00") a
   extensão abre a página da carta

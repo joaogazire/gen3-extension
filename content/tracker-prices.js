@@ -100,10 +100,9 @@
 
   // ---- Busca ----------------------------------------------------------------
 
-  // Resultados da busca da Liga — o mesmo parser do content.js
-  // (fetchLigaSearchIndex). null = página sem a lista (não é "nenhum resultado")
-  function parseSearch(html) {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Resultados (.mtg-single) de um pedaço de HTML da busca — o mesmo parser
+  // do content.js (parseSearchEntries)
+  function parseEntries(doc) {
     const entries = [];
     doc.querySelectorAll('.mtg-single').forEach(el => {
       const link = el.querySelector('a[href*="view=cards/card"]');
@@ -130,8 +129,62 @@
         url: url.toString()
       });
     });
+    return entries;
+  }
+
+  // null = página sem a lista (não é "nenhum resultado")
+  function parseSearch(html) {
+    const entries = parseEntries(new DOMParser().parseFromString(html, 'text/html'));
     if (entries.length === 0 && !/id="mtg-cards"|Itens encontrados/.test(html)) return null;
     return entries;
+  }
+
+  // A busca mostra 40 itens; o resto vem do "Exibir mais" (POST
+  // /ajax/cards/main.php, opc=nextPage), como no content.js. false = a Liga
+  // não respondeu e a lista ficou incompleta.
+  const PAGE_SIZE = 40;
+  const MAX_EXTRA_PAGES = 15;
+
+  async function appendPages(html, entries) {
+    const next = html.match(/mcards\.nextPage\((\d+)\)/);
+    if (!next || entries.length < PAGE_SIZE) return true;
+    const param = (name, fallback) => {
+      const m = html.match(new RegExp(`mcards\\.${name}\\((?:"([^"]*)"|(\\d+))\\)`));
+      return m ? (m[1] != null ? m[1] : m[2]) : fallback;
+    };
+    const form = {
+      opc: 'nextPage',
+      totalReg: param('setTotalReg', String(entries.length + 1)),
+      search: param('setSearch', ''),
+      orderBy: '',
+      tipo: param('setTipo', '1'),
+      fav: 'false',
+      iTCG: '2',
+      idPokemon: '0'
+    };
+    let key = next[1];
+    for (let page = 2; page < 2 + MAX_EXTRA_PAGES; page++) {
+      let response;
+      for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+        try {
+          response = await browser.runtime.sendMessage({
+            action: 'fetchLigaJson',
+            url: `${LIGA_ORIGIN}ajax/cards/main.php`,
+            form: { ...form, page: String(page), key: String(key) }
+          });
+        } catch (err) {
+          return false;
+        }
+        if (!response || !response.rateLimited) break;
+        await sleep(Math.max(response.retryAfterMs || 0, 5000));
+      }
+      const json = response && response.json;
+      if (!json || json.error) return false;
+      entries.push(...parseEntries(new DOMParser().parseFromString(`<div>${json.html || ''}</div>`, 'text/html')));
+      if (String(json.nextPage) !== '1' || json.key == null) return true;
+      key = json.key;
+    }
+    return true;
   }
 
   // Uma busca por vez daqui (o background ainda serializa com as lojas) e
@@ -180,7 +233,8 @@
 
       const entries = parseSearch(response.text);
       if (!entries) return { status: 'error', entries: [] };
-      writeCache(words, entries);
+      // Lista incompleta vale para agora, mas não vai pro cache
+      if (await appendPages(response.text, entries)) writeCache(words, entries);
       return { status: 'ok', entries };
     }
     return { status: 'error', entries: [] };
