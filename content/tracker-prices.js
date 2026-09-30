@@ -143,7 +143,7 @@
   // /ajax/cards/main.php, opc=nextPage), como no content.js. false = a Liga
   // não respondeu e a lista ficou incompleta.
   const PAGE_SIZE = 40;
-  const MAX_EXTRA_PAGES = 15;
+  const MAX_EXTRA_PAGES = 50;
 
   async function appendPages(html, entries) {
     const next = html.match(/mcards\.nextPage\((\d+)\)/);

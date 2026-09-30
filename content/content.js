@@ -1210,7 +1210,7 @@
   // Os parâmetros vêm das chamadas mcards.set*() da própria página. Devolve
   // false se a Liga não respondeu (a lista ficaria incompleta).
   const SEARCH_PAGE_SIZE = 40;
-  const SEARCH_MAX_EXTRA_PAGES = 15;
+  const SEARCH_MAX_EXTRA_PAGES = 50;
 
   async function appendSearchPages(html, entries) {
     const next = html.match(/mcards\.nextPage\((\d+)\)/);
